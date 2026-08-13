@@ -1,6 +1,6 @@
-import type { FoodLog, Targets, User } from '../types'
+import type { ActivityLog, FoodLog, Targets, User } from '../types'
 
-const KEYS = { user: 'kalgueng:user', targets: 'kalgueng:targets', foods: 'kalgueng:foods' }
+const KEYS = { user: 'kalgueng:user', targets: 'kalgueng:targets', foods: 'kalgueng:foods', activities: 'kalgueng:activities' }
 const defaults: Targets = { calories: 2000, protein: 150, carbs: 220, fat: 60 }
 
 function read<T>(key: string, fallback: T): T {
@@ -17,5 +17,9 @@ export const store = {
   setTargets: (targets: Targets) => write(KEYS.targets, targets),
   getFoods: () => read<FoodLog[]>(KEYS.foods, []),
   saveFood: (food: FoodLog) => write(KEYS.foods, [food, ...store.getFoods()]),
+  updateFood: (updatedFood: FoodLog) => write(KEYS.foods, store.getFoods().map((food) => food.id === updatedFood.id ? updatedFood : food)),
   deleteFood: (id: string) => write(KEYS.foods, store.getFoods().filter((food) => food.id !== id)),
+  getActivities: () => read<ActivityLog[]>(KEYS.activities, []),
+  saveActivity: (activity: ActivityLog) => write(KEYS.activities, [activity, ...store.getActivities()]),
+  deleteActivity: (id: string) => write(KEYS.activities, store.getActivities().filter((activity) => activity.id !== id)),
 }
