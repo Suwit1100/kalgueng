@@ -1,6 +1,6 @@
-import type { ActivityLog, FoodLog, Targets, User } from '../types'
+import type { ActivityLog, BodyMeasurement, FoodLog, Targets, User } from '../types'
 
-const KEYS = { user: 'kalgueng:user', targets: 'kalgueng:targets', foods: 'kalgueng:foods', activities: 'kalgueng:activities' }
+const KEYS = { user: 'kalgueng:user', targets: 'kalgueng:targets', foods: 'kalgueng:foods', activities: 'kalgueng:activities', body: 'kalgueng:body' }
 const defaults: Targets = { calories: 2000, protein: 150, carbs: 220, fat: 60 }
 
 function read<T>(key: string, fallback: T): T {
@@ -22,4 +22,7 @@ export const store = {
   getActivities: () => read<ActivityLog[]>(KEYS.activities, []),
   saveActivity: (activity: ActivityLog) => write(KEYS.activities, [activity, ...store.getActivities()]),
   deleteActivity: (id: string) => write(KEYS.activities, store.getActivities().filter((activity) => activity.id !== id)),
+  getBodyMeasurements: () => read<BodyMeasurement[]>(KEYS.body, []),
+  saveBodyMeasurement: (measurement: BodyMeasurement) => write(KEYS.body, [measurement, ...store.getBodyMeasurements().filter((item) => item.date !== measurement.date)]),
+  deleteBodyMeasurement: (id: string) => write(KEYS.body, store.getBodyMeasurements().filter((measurement) => measurement.id !== id)),
 }

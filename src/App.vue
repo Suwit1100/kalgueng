@@ -2,20 +2,22 @@
 import { computed, onMounted, ref } from 'vue'
 import { signInWithGoogle } from './lib/google'
 import { store } from './lib/storage'
-import type { ActivityLog, FoodLog, Macro, Targets, User } from './types'
+import type { ActivityLog, BodyMeasurement, FoodLog, Macro, Targets, User } from './types'
 
 const user = ref<User | null>(store.getUser())
-const tab = ref<'today' | 'add' | 'activity' | 'history' | 'settings'>('today')
+const tab = ref<'today' | 'add' | 'activity' | 'history' | 'body' | 'settings'>('today')
 const isOnboarding = ref(user.value !== null && !store.hasTargets())
 const targets = ref<Targets>(store.getTargets())
 const foods = ref<FoodLog[]>(store.getFoods())
 const activities = ref<ActivityLog[]>(store.getActivities())
+const measurements = ref<BodyMeasurement[]>(store.getBodyMeasurements())
 const error = ref('')
 const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date())
 const form = ref({ name: '', meal: 'lunch' as FoodLog['meal'], calories: '', protein: '', carbs: '', fat: '' })
 const editingFoodId = ref<string | null>(null)
 const editingFoodDate = ref<string | null>(null)
 const activityForm = ref({ name: '', calories: '' })
+const bodyForm = ref({ weight: '', bodyFat: '', muscleMass: '' })
 
 const totals = computed<Macro>(() => foods.value.filter((food) => food.date === today).reduce((sum, food) => ({
   calories: sum.calories + food.calories, protein: sum.protein + food.protein, carbs: sum.carbs + food.carbs, fat: sum.fat + food.fat,
@@ -62,6 +64,13 @@ function saveActivity() {
   activities.value = store.getActivities(); activityForm.value = { name: '', calories: '' }; error.value = ''; tab.value = 'today'
 }
 function removeActivity(id: string) { store.deleteActivity(id); activities.value = store.getActivities() }
+function saveBodyMeasurement() {
+  const value = bodyForm.value
+  if (![value.weight, value.bodyFat, value.muscleMass].some((item) => item !== '' && Number(item) >= 0)) { error.value = 'กรุณากรอกข้อมูลอย่างน้อย 1 ค่า'; return }
+  store.saveBodyMeasurement({ id: crypto.randomUUID(), date: today, createdAt: new Date().toISOString(), weight: value.weight === '' ? undefined : Number(value.weight), bodyFat: value.bodyFat === '' ? undefined : Number(value.bodyFat), muscleMass: value.muscleMass === '' ? undefined : Number(value.muscleMass) })
+  measurements.value = store.getBodyMeasurements(); bodyForm.value = { weight: '', bodyFat: '', muscleMass: '' }; error.value = ''
+}
+function removeBodyMeasurement(id: string) { store.deleteBodyMeasurement(id); measurements.value = store.getBodyMeasurements() }
 function logout() { store.clearUser(); user.value = null; tab.value = 'today' }
 onMounted(loadGoogleScript)
 </script>
@@ -104,6 +113,7 @@ onMounted(loadGoogleScript)
       </section>
       <section v-else-if="tab === 'add'" class="px-5"><div class="flex items-center gap-3"><button class="text-2xl" @click="resetFoodForm(); tab = 'today'">‹</button><h1 class="text-2xl font-bold">{{ editingFoodId ? 'แก้ไขอาหาร' : 'เพิ่มอาหาร' }}</h1></div><p class="mt-2 text-slate-600">กรอกข้อมูลโภชนาการที่ทราบได้ทันที</p><form class="mt-6 space-y-4" @submit.prevent="saveFood"><input v-model="form.name" placeholder="เช่น กะเพราไก่ไข่ดาว 1 จาน" class="w-full rounded-2xl border-0 bg-white px-4 py-4 shadow-sm outline-teal-600"><select v-model="form.meal" class="w-full rounded-2xl bg-white px-4 py-4 shadow-sm outline-teal-600"><option value="breakfast">อาหารเช้า</option><option value="lunch">อาหารกลางวัน</option><option value="dinner">อาหารเย็น</option><option value="snack">ของว่าง</option></select><div class="grid grid-cols-2 gap-3"><label v-for="item in [{key:'calories',label:'พลังงาน (kcal)'}, {key:'protein',label:'โปรตีน (g)'}, {key:'carbs',label:'คาร์บ (g)'}, {key:'fat',label:'ไขมัน (g)'}]" :key="item.key"><span class="mb-1 block text-sm text-slate-600">{{ item.label }}</span><input v-model="form[item.key as keyof typeof form]" type="number" min="0" inputmode="decimal" class="w-full rounded-xl bg-white px-3 py-3 shadow-sm outline-teal-600"></label></div><p v-if="error" class="text-sm text-red-600">{{ error }}</p><button class="w-full rounded-2xl bg-teal-700 py-4 font-semibold text-white">{{ editingFoodId ? 'บันทึกการแก้ไข' : 'บันทึกอาหาร' }}</button></form></section>
       <section v-else-if="tab === 'history'" class="px-5"><h1 class="text-2xl font-bold">ประวัติอาหาร</h1><p class="mt-2 text-slate-600">รายการที่บันทึกไว้ย้อนหลัง</p><p v-if="historyDays.length === 0" class="mt-6 rounded-2xl bg-white p-5 text-center text-slate-500">ยังไม่มีประวัติอาหาร</p><div v-else class="mt-6 space-y-6"><section v-for="day in historyDays" :key="day"><div class="mb-2 flex items-center justify-between"><h2 class="font-bold">{{ formatHistoryDate(day) }}</h2><p class="text-sm text-slate-500">{{ foods.filter(food => food.date === day).reduce((sum, food) => sum + food.calories, 0) }} kcal</p></div><div class="space-y-2"><article v-for="food in foods.filter(food => food.date === day)" :key="food.id" class="flex items-center rounded-2xl bg-white p-4 shadow-sm"><div class="flex-1"><p class="font-semibold">{{ food.name }}</p><p class="text-sm text-slate-500">P {{ food.protein }}g · C {{ food.carbs }}g · F {{ food.fat }}g</p></div><div class="text-right"><p class="font-bold">{{ food.calories }} kcal</p><div class="mt-1 flex gap-3"><button class="text-xs text-teal-700" @click="editFood(food)">แก้ไข</button><button class="text-xs text-red-500" @click="removeFood(food.id)">ลบ</button></div></div></article></div></section></div></section>
+      <section v-else-if="tab === 'body'" class="px-5"><h1 class="text-2xl font-bold">สัดส่วนร่างกาย</h1><p class="mt-2 text-slate-600">บันทึกข้อมูลของวันนี้ เพื่อดูความเปลี่ยนแปลง</p><form class="mt-6 space-y-3" @submit.prevent="saveBodyMeasurement"><label v-for="item in [{key:'weight',label:'น้ำหนัก (kg)'}, {key:'bodyFat',label:'ไขมันในร่างกาย (%)'}, {key:'muscleMass',label:'มวลกล้ามเนื้อ (kg)'}]" :key="item.key" class="block rounded-2xl bg-white p-4 shadow-sm"><span class="font-medium">{{ item.label }}</span><input v-model="bodyForm[item.key as keyof typeof bodyForm]" type="number" min="0" step="0.1" inputmode="decimal" class="mt-2 w-full rounded-xl bg-stone-100 px-3 py-2 outline-teal-600"></label><p v-if="error" class="text-sm text-red-600">{{ error }}</p><button class="w-full rounded-2xl bg-teal-700 py-4 font-semibold text-white">บันทึกข้อมูลวันนี้</button></form><h2 class="mt-8 text-lg font-bold">ประวัติ</h2><p v-if="measurements.length === 0" class="mt-3 rounded-2xl bg-white p-4 text-center text-slate-500">ยังไม่มีข้อมูลร่างกาย</p><div v-else class="mt-3 space-y-2"><article v-for="item in measurements" :key="item.id" class="flex items-center rounded-2xl bg-white p-4 shadow-sm"><div class="flex-1"><p class="font-semibold">{{ formatHistoryDate(item.date) }}</p><p class="text-sm text-slate-500"><span v-if="item.weight">น้ำหนัก {{ item.weight }} kg</span><span v-if="item.bodyFat"> · ไขมัน {{ item.bodyFat }}%</span><span v-if="item.muscleMass"> · กล้ามเนื้อ {{ item.muscleMass }} kg</span></p></div><button class="text-sm text-red-500" @click="removeBodyMeasurement(item.id)">ลบ</button></article></div></section>
       <section v-else-if="tab === 'activity'" class="px-5">
         <div class="flex items-center gap-3"><button class="text-2xl" @click="tab = 'today'">‹</button><h1 class="text-2xl font-bold">Activity</h1></div>
         <p class="mt-2 text-slate-600">Activity calories increase only today's calorie budget.</p>
@@ -111,7 +121,7 @@ onMounted(loadGoogleScript)
         <h2 class="mt-8 text-lg font-bold">Today's activities</h2><p v-if="activities.filter(activity => activity.date === today).length === 0" class="mt-3 rounded-2xl bg-white p-4 text-center text-slate-500">No activity logged today</p><div v-else class="mt-3 space-y-2"><article v-for="activity in activities.filter(activity => activity.date === today)" :key="activity.id" class="flex items-center rounded-2xl bg-white p-4 shadow-sm"><div class="flex-1"><p class="font-semibold">{{ activity.name }}</p><p class="text-sm text-teal-700">+{{ activity.calories }} kcal budget</p></div><button class="text-sm text-red-500" @click="removeActivity(activity.id)">Delete</button></article></div>
       </section>
       <section v-else class="px-5"><h1 class="text-2xl font-bold">ตั้งค่า</h1><p class="mt-2 text-slate-600">เป้าหมายรายวันของคุณ</p><div class="mt-5 space-y-3"><label v-for="item in [{key:'calories',label:'พลังงาน (kcal)'}, {key:'protein',label:'โปรตีน (g)'}, {key:'carbs',label:'คาร์บ (g)'}, {key:'fat',label:'ไขมัน (g)'}]" :key="item.key" class="flex items-center justify-between rounded-2xl bg-white p-4 shadow-sm"><span>{{ item.label }}</span><input v-model.number="targets[item.key as keyof Targets]" type="number" min="0" class="w-24 rounded-lg bg-stone-100 px-2 py-1 text-right outline-teal-600"></label></div><button class="mt-5 w-full rounded-2xl bg-teal-700 py-4 font-semibold text-white" @click="saveTargets">บันทึกการตั้งค่า</button><button class="mt-3 w-full rounded-2xl py-3 text-red-600" @click="logout">ออกจากระบบ</button></section>
-      <nav class="fixed bottom-0 left-1/2 flex w-full max-w-md -translate-x-1/2 justify-around border-t bg-white px-4 py-3"><button :class="tab === 'today' ? 'text-teal-700' : 'text-slate-500'" @click="tab = 'today'">⌂<span class="block text-xs">วันนี้</span></button><button :class="tab === 'history' ? 'text-teal-700' : 'text-slate-500'" @click="tab = 'history'">◷<span class="block text-xs">ประวัติ</span></button><button class="-mt-8 grid h-14 w-14 place-items-center rounded-full bg-teal-700 text-3xl text-white shadow-lg" @click="tab = 'add'">+</button><button :class="tab === 'settings' ? 'text-teal-700' : 'text-slate-500'" @click="tab = 'settings'">⚙<span class="block text-xs">ตั้งค่า</span></button></nav>
+      <nav class="fixed bottom-0 left-1/2 flex w-full max-w-md -translate-x-1/2 justify-around border-t bg-white px-3 py-3"><button :class="tab === 'today' ? 'text-teal-700' : 'text-slate-500'" @click="tab = 'today'">⌂<span class="block text-xs">วันนี้</span></button><button :class="tab === 'history' ? 'text-teal-700' : 'text-slate-500'" @click="tab = 'history'">◷<span class="block text-xs">ประวัติ</span></button><button class="-mt-8 grid h-14 w-14 place-items-center rounded-full bg-teal-700 text-3xl text-white shadow-lg" @click="tab = 'add'">+</button><button :class="tab === 'body' ? 'text-teal-700' : 'text-slate-500'" @click="tab = 'body'">♙<span class="block text-xs">ร่างกาย</span></button><button :class="tab === 'settings' ? 'text-teal-700' : 'text-slate-500'" @click="tab = 'settings'">⚙<span class="block text-xs">ตั้งค่า</span></button></nav>
     </template>
   </main>
 </template>
