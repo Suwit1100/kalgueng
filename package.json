@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node scripts/run-tests.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-vue": "latest",

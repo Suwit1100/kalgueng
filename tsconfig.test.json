@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "outDir": ".test-dist",
+    "rootDir": "."
+  },
+  "include": [
+    "src/types.ts",
+    "src/lib/ai.ts",
+    "src/lib/stats.ts",
+    "src/lib/storage.ts",
+    "src/lib/*.test.ts"
+  ]
+}

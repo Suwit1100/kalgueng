@@ -3,6 +3,25 @@
 @tailwind utilities;
 
 @layer base {
-  body { @apply min-h-screen bg-stone-50 text-slate-900 antialiased; }
+  html { background: #f5f5f4; }
+  body { @apply min-h-screen bg-stone-100 text-slate-900 antialiased; }
   button, input, select { font: inherit; }
+  button { -webkit-tap-highlight-color: transparent; }
+  :focus-visible { @apply outline-none ring-2 ring-teal-600 ring-offset-2; }
+}
+
+@layer components {
+  .app-shell { min-height: 100dvh; }
+  .touch-button { @apply grid h-11 w-11 place-items-center rounded-full; }
+  .nav-button { @apply flex min-h-12 min-w-12 flex-col items-center justify-center text-lg font-medium; }
+  .nav-button span { @apply mt-0.5 block text-[10px]; }
+  .safe-nav { padding-bottom: max(0.55rem, env(safe-area-inset-bottom)); }
+}
+
+@media (min-width: 640px) {
+  .app-shell { @apply my-6 min-h-[calc(100dvh-3rem)] rounded-[2rem] shadow-xl; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }

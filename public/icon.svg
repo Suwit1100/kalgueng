@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="แคลกูเอง">
+  <rect width="512" height="512" rx="112" fill="#0f766e"/>
+  <circle cx="256" cy="255" r="154" fill="#ffffff" opacity="0.12"/>
+  <path d="M132 280h248c-9 78-57 126-124 126s-115-48-124-126Z" fill="#f8fafc"/>
+  <path d="M166 279c20-81 83-116 90-116 7 0 69 35 90 116" fill="#14b8a6"/>
+  <path d="M253 274c-54-2-91-37-88-91 55 0 91 35 88 91Z" fill="#a3e635"/>
+  <path d="M259 270c3-56 39-91 94-88 0 55-36 91-94 88Z" fill="#4ade80"/>
+  <path d="M256 269c-27-46-18-95 29-122 28 47 18 95-29 122Z" fill="#facc15"/>
+  <path d="M164 321h184" stroke="#0f766e" stroke-width="18" stroke-linecap="round" opacity="0.25"/>
+</svg>
