@@ -47,6 +47,7 @@ const isSigningIn = ref(false)
 const isOnline = ref(typeof navigator === 'undefined' ? true : navigator.onLine)
 const installPrompt = ref<InstallPromptEvent | null>(null)
 const isInstalled = ref(false)
+const copiedSummary = ref(false)
 
 const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date())
 const form = ref({ name: '', meal: 'lunch' as FoodLog['meal'], date: today, calories: '', protein: '', carbs: '', fat: '' })
@@ -83,6 +84,16 @@ const dailyTotals = (date: string) => totalsForDate(foods.value, date)
 const dailyCalories = (date: string) => dailyTotals(date).calories
 const weeklyCalories = computed(() => lastSevenDays.value.reduce((sum, date) => sum + dailyCalories(date), 0))
 const weeklyAverage = computed(() => Math.round(weeklyCalories.value / 7))
+const weeklyActivityCalories = computed(() => lastSevenDays.value.reduce((sum, date) => sum + burnedForDate(date), 0))
+const weeklyNetCalories = computed(() => weeklyCalories.value - weeklyActivityCalories.value)
+const statDays = computed(() => lastSevenDays.value.map((date) => ({
+  date,
+  food: dailyCalories(date),
+  activity: burnedForDate(date),
+  net: dailyCalories(date) - burnedForDate(date),
+  target: targetsForDate(date).calories,
+})))
+const netChartMax = computed(() => Math.max(targets.value.calories, ...statDays.value.flatMap((day) => [day.food, Math.abs(day.net)]), 1))
 const weeklyMacros = computed(() => lastSevenDays.value.reduce((sum, date) => {
   const total = dailyTotals(date)
   return { protein: sum.protein + total.protein, carbs: sum.carbs + total.carbs, fat: sum.fat + total.fat }
@@ -121,6 +132,7 @@ function percent(value: number, target: number, cap = 100) {
 function macroAverage(key: MacroKey) { return Math.round(weeklyMacros.value[key] / 7 * 10) / 10 }
 function macroChartHeight(date: string, key: MacroKey) { return percent(dailyTotals(date)[key], targets.value[key], 100) }
 function calorieChartHeight(date: string) { return percent(dailyCalories(date), targetsForDate(date).calories, 100) }
+function netChartHeight(value: number) { return Math.min(100, Math.abs(value) / netChartMax.value * 100) }
 function bodyValue(item: BodyMeasurement, key: BodyMetricKey) { return item[key] }
 function bodyChartHeight(item: BodyMeasurement, key: BodyMetricKey) {
   const value = bodyValue(item, key)
@@ -148,6 +160,19 @@ function signed(value: number | null) { return value === null ? '—' : `${value
 function setMessage(text: string, kind: MessageKind = 'error') { message.value = text; messageKind.value = kind }
 function clearMessage() { message.value = '' }
 function goTo(next: Tab) { clearMessage(); tab.value = next }
+function weeklySummaryText() {
+  const lines = statDays.value.map((day) => `- ${formatHistoryDate(day.date)}: กิน ${day.food.toLocaleString()} kcal | กิจกรรม ${day.activity.toLocaleString()} kcal | Net ${day.net.toLocaleString()} kcal`)
+  return [`สรุปแคลอรี่ 7 วันล่าสุด (${shortDate(lastSevenDays.value[0])} – ${shortDate(lastSevenDays.value.at(-1)! )})`, '', ...lines, '', `รวมอาหาร: ${weeklyCalories.value.toLocaleString()} kcal`, `รวมกิจกรรม: ${weeklyActivityCalories.value.toLocaleString()} kcal`, `Net calories: ${weeklyNetCalories.value.toLocaleString()} kcal`, `เฉลี่ยอาหาร: ${weeklyAverage.value.toLocaleString()} kcal/วัน`, `เป้าครบทุก macro: ${goalDays.value}/7 วัน`, `Current streak: ${currentStreak.value} วัน | Best streak: ${bestStreak.value} วัน`].join('\n')
+}
+async function copyWeeklySummary() {
+  try {
+    await navigator.clipboard.writeText(weeklySummaryText())
+    copiedSummary.value = true
+    setTimeout(() => { copiedSummary.value = false }, 2_500)
+  } catch {
+    setMessage('ไม่สามารถคัดลอกอัตโนมัติได้ กรุณาอนุญาต Clipboard ในเบราว์เซอร์')
+  }
+}
 
 async function login() {
   clearMessage()
@@ -462,11 +487,24 @@ onBeforeUnmount(() => {
 
       <section v-else-if="tab === 'stats'" class="px-5">
         <h1 class="text-2xl font-bold">สถิติ</h1><p class="mt-2 text-slate-600">พลังงาน สารอาหาร และสัดส่วนใน 7 รายการ/วันล่าสุด</p>
-        <div class="mt-6 grid grid-cols-2 gap-3"><div class="rounded-2xl bg-teal-700 p-4 text-white"><p class="text-sm text-teal-100">แคลอรีเฉลี่ย 7 วัน</p><p class="mt-1 text-2xl font-bold">{{ weeklyAverage.toLocaleString() }} <span class="text-sm font-normal">kcal</span></p></div><div class="rounded-2xl bg-white p-4 shadow-sm"><p class="text-sm text-slate-500">ครบทุกเป้า 7 วัน</p><p class="mt-1 text-2xl font-bold">{{ goalDays }} <span class="text-sm font-normal">/ 7 วัน</span></p></div></div>
+        <div class="mt-5 flex items-center justify-between gap-3"><p class="text-sm text-slate-600">ข้อมูลอาหาร กิจกรรม และสัดส่วน 7 วันล่าสุด</p><button type="button" class="shrink-0 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-800" @click="copyWeeklySummary">{{ copiedSummary ? 'คัดลอกแล้ว ✓' : 'คัดลอกสรุป 7 วัน' }}</button></div>
+        <div class="mt-4 grid grid-cols-2 gap-3"><div class="rounded-2xl bg-teal-700 p-4 text-white"><p class="text-sm text-teal-100">แคลอรีเฉลี่ย 7 วัน</p><p class="mt-1 text-2xl font-bold">{{ weeklyAverage.toLocaleString() }} <span class="text-sm font-normal">kcal</span></p></div><div class="rounded-2xl bg-white p-4 shadow-sm"><p class="text-sm text-slate-500">ครบทุกเป้า 7 วัน</p><p class="mt-1 text-2xl font-bold">{{ goalDays }} <span class="text-sm font-normal">/ 7 วัน</span></p></div><div class="rounded-2xl bg-white p-4 shadow-sm"><p class="text-sm text-slate-500">กิจกรรมรวม</p><p class="mt-1 text-2xl font-bold text-sky-700">{{ weeklyActivityCalories.toLocaleString() }} <span class="text-sm font-normal">kcal</span></p></div><div class="rounded-2xl bg-white p-4 shadow-sm"><p class="text-sm text-slate-500">Net calories รวม</p><p class="mt-1 text-2xl font-bold text-violet-700">{{ weeklyNetCalories.toLocaleString() }} <span class="text-sm font-normal">kcal</span></p></div></div>
 
         <div class="mt-6 rounded-3xl bg-white p-5 shadow-sm">
           <div class="flex items-baseline justify-between"><h2 class="font-bold">แคลอรีรายวัน</h2><p class="text-xs text-slate-500">เป้าปรับตามกิจกรรม</p></div>
           <div class="mt-5 flex h-40 items-end justify-between gap-2" role="img" aria-label="กราฟแคลอรี 7 วันล่าสุด"><div v-for="date in lastSevenDays" :key="date" class="flex h-full min-w-0 flex-1 flex-col justify-end"><p class="mb-1 truncate text-center text-[10px] font-medium">{{ dailyCalories(date) || '-' }}</p><div class="rounded-t-lg bg-teal-600" :style="{ height: `${calorieChartHeight(date)}%`, minHeight: dailyCalories(date) ? '4px' : '0' }"/><p class="mt-2 text-center text-[10px] text-slate-500">{{ shortDate(date).split(' ')[0] }}</p></div></div>
+        </div>
+
+        <div class="mt-4 rounded-3xl bg-white p-5 shadow-sm">
+          <div class="flex items-baseline justify-between"><div><h2 class="font-bold">Net Calories & กิจกรรม</h2><p class="mt-1 text-xs text-slate-500">Net = แคลอรีอาหาร − แคลอรีจากกิจกรรม</p></div><p class="text-xs font-semibold text-violet-700">รวม {{ weeklyNetCalories.toLocaleString() }} kcal</p></div>
+          <div class="mt-5 flex h-40 items-end justify-between gap-2" role="img" aria-label="กราฟ Net Calories และกิจกรรม 7 วันล่าสุด">
+            <div v-for="day in statDays" :key="`net-${day.date}`" class="flex h-full min-w-0 flex-1 flex-col justify-end">
+              <p class="mb-1 truncate text-center text-[10px] font-medium text-violet-800">{{ day.net }}</p>
+              <div class="flex h-28 items-end justify-center gap-0.5"><div class="w-1/2 rounded-t-md bg-violet-600" :style="{ height: `${netChartHeight(day.net)}%`, minHeight: day.net ? '3px' : '0' }"/><div class="w-1/2 rounded-t-md bg-sky-400" :style="{ height: `${netChartHeight(day.activity)}%`, minHeight: day.activity ? '3px' : '0' }"/></div>
+              <p class="mt-2 text-center text-[10px] text-slate-500">{{ shortDate(day.date).split(' ')[0] }}</p>
+            </div>
+          </div>
+          <div class="mt-3 flex gap-4 text-xs text-slate-600"><span><i class="mr-1 inline-block h-2 w-2 rounded-sm bg-violet-600"/>Net calories</span><span><i class="mr-1 inline-block h-2 w-2 rounded-sm bg-sky-400"/>กิจกรรม</span></div>
         </div>
 
         <h2 class="mt-7 text-lg font-bold">สารอาหาร 7 วัน</h2>
