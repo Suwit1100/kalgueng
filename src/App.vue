@@ -86,6 +86,8 @@ const weeklyCalories = computed(() => lastSevenDays.value.reduce((sum, date) => 
 const weeklyAverage = computed(() => Math.round(weeklyCalories.value / 7))
 const weeklyActivityCalories = computed(() => lastSevenDays.value.reduce((sum, date) => sum + burnedForDate(date), 0))
 const weeklyNetCalories = computed(() => weeklyCalories.value - weeklyActivityCalories.value)
+const weeklyActivityAverage = computed(() => Math.round(weeklyActivityCalories.value / 7))
+const weeklyNetAverage = computed(() => Math.round(weeklyNetCalories.value / 7))
 const statDays = computed(() => lastSevenDays.value.map((date) => ({
   date,
   food: dailyCalories(date),
@@ -151,6 +153,11 @@ function latestBodyValue(key: BodyMetricKey) {
   }
   return undefined
 }
+function bodyAverage(key: BodyMetricKey) {
+  const values = measurements.value.map((item) => bodyValue(item, key)).filter((value): value is number => value !== undefined)
+  if (!values.length) return undefined
+  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length * 10) / 10
+}
 function bodyDelta(key: BodyMetricKey) {
   const values = recentMeasurements.value.map((item) => bodyValue(item, key)).filter((value): value is number => value !== undefined)
   if (values.length < 2) return null
@@ -161,8 +168,13 @@ function setMessage(text: string, kind: MessageKind = 'error') { message.value =
 function clearMessage() { message.value = '' }
 function goTo(next: Tab) { clearMessage(); tab.value = next }
 function weeklySummaryText() {
-  const lines = statDays.value.map((day) => `- ${formatHistoryDate(day.date)}: กิน ${day.food.toLocaleString()} kcal | กิจกรรม ${day.activity.toLocaleString()} kcal | Net ${day.net.toLocaleString()} kcal`)
-  return [`สรุปแคลอรี่ 7 วันล่าสุด (${shortDate(lastSevenDays.value[0])} – ${shortDate(lastSevenDays.value.at(-1)! )})`, '', ...lines, '', `รวมอาหาร: ${weeklyCalories.value.toLocaleString()} kcal`, `รวมกิจกรรม: ${weeklyActivityCalories.value.toLocaleString()} kcal`, `Net calories: ${weeklyNetCalories.value.toLocaleString()} kcal`, `เฉลี่ยอาหาร: ${weeklyAverage.value.toLocaleString()} kcal/วัน`, `เป้าครบทุก macro: ${goalDays.value}/7 วัน`, `Current streak: ${currentStreak.value} วัน | Best streak: ${bestStreak.value} วัน`].join('\n')
+  const days = statDays.value.map((day) => {
+    const macro = dailyTotals(day.date)
+    return `- ${formatHistoryDate(day.date)}: อาหาร ${day.food.toLocaleString()} kcal | กิจกรรม ${day.activity.toLocaleString()} kcal | Net ${day.net.toLocaleString()} kcal | P ${macro.protein}g C ${macro.carbs}g F ${macro.fat}g`
+  })
+  const body = bodyFields.map((field) => `- ${field.label}: ล่าสุด ${latestBodyValue(field.key) ?? '—'} ${field.unit} | เฉลี่ย ${bodyAverage(field.key) ?? '—'} ${field.unit} | เปลี่ยน ${signed(bodyDelta(field.key))} ${field.unit}`)
+  const bodyHistory = measurements.value.length ? measurements.value.map((item) => `- ${formatHistoryDate(item.date)}: น้ำหนัก ${item.weight ?? '—'} kg | ไขมัน ${item.bodyFat ?? '—'}% | กล้ามเนื้อ ${item.muscleMass ?? '—'} kg`) : ['- ยังไม่มีข้อมูลร่างกาย']
+  return [`สรุปสุขภาพ 7 วันล่าสุด (${shortDate(lastSevenDays.value[0])} – ${shortDate(lastSevenDays.value.at(-1)!)})`, '', 'รายวัน (Net = อาหาร - กิจกรรม)', ...days, '', 'ค่าเฉลี่ยและยอดรวม', `- อาหารเฉลี่ย: ${weeklyAverage.value.toLocaleString()} kcal/วัน`, `- กิจกรรมเฉลี่ย: ${weeklyActivityAverage.value.toLocaleString()} kcal/วัน`, `- Net Calories เฉลี่ย: ${weeklyNetAverage.value.toLocaleString()} kcal/วัน`, `- รวมอาหาร: ${weeklyCalories.value.toLocaleString()} kcal | รวมกิจกรรม: ${weeklyActivityCalories.value.toLocaleString()} kcal | Net รวม: ${weeklyNetCalories.value.toLocaleString()} kcal`, `- โปรตีนเฉลี่ย: ${macroAverage('protein')} g/วัน | คาร์บเฉลี่ย: ${macroAverage('carbs')} g/วัน | ไขมันเฉลี่ย: ${macroAverage('fat')} g/วัน`, '', 'สัดส่วนร่างกาย', ...body, '', 'ประวัติร่างกายทั้งหมด', ...bodyHistory, '', `เป้าครบทุก macro: ${goalDays.value}/7 วัน`, `Current streak: ${currentStreak.value} วัน | Best streak: ${bestStreak.value} วัน`].join('\n')
 }
 async function copyWeeklySummary() {
   try {
@@ -488,7 +500,7 @@ onBeforeUnmount(() => {
       <section v-else-if="tab === 'stats'" class="px-5">
         <h1 class="text-2xl font-bold">สถิติ</h1><p class="mt-2 text-slate-600">พลังงาน สารอาหาร และสัดส่วนใน 7 รายการ/วันล่าสุด</p>
         <div class="mt-5 flex items-center justify-between gap-3"><p class="text-sm text-slate-600">ข้อมูลอาหาร กิจกรรม และสัดส่วน 7 วันล่าสุด</p><button type="button" class="shrink-0 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-800" @click="copyWeeklySummary">{{ copiedSummary ? 'คัดลอกแล้ว ✓' : 'คัดลอกสรุป 7 วัน' }}</button></div>
-        <div class="mt-4 grid grid-cols-2 gap-3"><div class="rounded-2xl bg-teal-700 p-4 text-white"><p class="text-sm text-teal-100">แคลอรีเฉลี่ย 7 วัน</p><p class="mt-1 text-2xl font-bold">{{ weeklyAverage.toLocaleString() }} <span class="text-sm font-normal">kcal</span></p></div><div class="rounded-2xl bg-white p-4 shadow-sm"><p class="text-sm text-slate-500">ครบทุกเป้า 7 วัน</p><p class="mt-1 text-2xl font-bold">{{ goalDays }} <span class="text-sm font-normal">/ 7 วัน</span></p></div><div class="rounded-2xl bg-white p-4 shadow-sm"><p class="text-sm text-slate-500">กิจกรรมรวม</p><p class="mt-1 text-2xl font-bold text-sky-700">{{ weeklyActivityCalories.toLocaleString() }} <span class="text-sm font-normal">kcal</span></p></div><div class="rounded-2xl bg-white p-4 shadow-sm"><p class="text-sm text-slate-500">Net calories รวม</p><p class="mt-1 text-2xl font-bold text-violet-700">{{ weeklyNetCalories.toLocaleString() }} <span class="text-sm font-normal">kcal</span></p></div></div>
+        <div class="mt-4 grid grid-cols-2 gap-3"><div class="rounded-2xl bg-teal-700 p-4 text-white"><p class="text-sm text-teal-100">อาหารเฉลี่ย 7 วัน</p><p class="mt-1 text-2xl font-bold">{{ weeklyAverage.toLocaleString() }} <span class="text-sm font-normal">kcal/วัน</span></p></div><div class="rounded-2xl bg-white p-4 shadow-sm"><p class="text-sm text-slate-500">ครบทุกเป้า 7 วัน</p><p class="mt-1 text-2xl font-bold">{{ goalDays }} <span class="text-sm font-normal">/ 7 วัน</span></p></div><div class="rounded-2xl bg-white p-4 shadow-sm"><p class="text-sm text-slate-500">กิจกรรมเฉลี่ย 7 วัน</p><p class="mt-1 text-2xl font-bold text-sky-700">{{ weeklyActivityAverage.toLocaleString() }} <span class="text-sm font-normal">kcal/วัน</span></p></div><div class="rounded-2xl bg-violet-50 p-4 shadow-sm"><p class="text-sm text-violet-800">Net Calories เฉลี่ย</p><p class="mt-1 text-2xl font-bold text-violet-700">{{ weeklyNetAverage.toLocaleString() }} <span class="text-sm font-normal">kcal/วัน</span></p><p class="mt-1 text-[10px] text-violet-700">อาหาร − กิจกรรม</p></div></div>
 
         <div class="mt-6 rounded-3xl bg-white p-5 shadow-sm">
           <div class="flex items-baseline justify-between"><h2 class="font-bold">แคลอรีรายวัน</h2><p class="text-xs text-slate-500">เป้าปรับตามกิจกรรม</p></div>
@@ -496,7 +508,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="mt-4 rounded-3xl bg-white p-5 shadow-sm">
-          <div class="flex items-baseline justify-between"><div><h2 class="font-bold">Net Calories & กิจกรรม</h2><p class="mt-1 text-xs text-slate-500">Net = แคลอรีอาหาร − แคลอรีจากกิจกรรม</p></div><p class="text-xs font-semibold text-violet-700">รวม {{ weeklyNetCalories.toLocaleString() }} kcal</p></div>
+          <div class="flex items-baseline justify-between"><div><h2 class="font-bold">Net Calories & กิจกรรม</h2><p class="mt-1 text-xs text-slate-500">Net = แคลอรีอาหาร − แคลอรีจากกิจกรรม</p></div><p class="text-xs font-semibold text-violet-700">เฉลี่ย {{ weeklyNetAverage.toLocaleString() }} kcal/วัน</p></div>
           <div class="mt-5 flex h-40 items-end justify-between gap-2" role="img" aria-label="กราฟ Net Calories และกิจกรรม 7 วันล่าสุด">
             <div v-for="day in statDays" :key="`net-${day.date}`" class="flex h-full min-w-0 flex-1 flex-col justify-end">
               <p class="mb-1 truncate text-center text-[10px] font-medium text-violet-800">{{ day.net }}</p>
