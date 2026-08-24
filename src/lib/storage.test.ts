@@ -40,3 +40,10 @@ test('clearAll removes every kalgueng-prefixed key but leaves unrelated storage 
   assert.equal(localStorage.getItem('kalgueng:targets'), null)
   assert.equal(localStorage.getItem('other-app:key'), 'keep')
 })
+
+test('saving a food preset with the same name replaces the saved menu', () => {
+  memory.clear()
+  store.saveFoodPreset({ id: 'p1', name: 'กะเพราไก่', meal: 'lunch', calories: 500, protein: 30, carbs: 55, fat: 15, createdAt: '1' })
+  store.saveFoodPreset({ id: 'p2', name: 'กะเพราไก่', meal: 'lunch', calories: 550, protein: 32, carbs: 60, fat: 18, createdAt: '2' })
+  assert.deepEqual(store.getFoodPresets(), [{ id: 'p1', name: 'กะเพราไก่', meal: 'lunch', calories: 550, protein: 32, carbs: 60, fat: 18, createdAt: '2' }])
+})

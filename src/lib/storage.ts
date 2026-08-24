@@ -1,10 +1,11 @@
-import type { ActivityLog, BodyMeasurement, FoodLog, Targets, User } from '../types'
+import type { ActivityLog, BodyMeasurement, FoodLog, FoodPreset, Targets, User } from '../types'
 
 const PREFIX = 'kalgueng:'
 const KEYS = {
   user: `${PREFIX}user`,
   targets: `${PREFIX}targets`,
   foods: `${PREFIX}foods`,
+  presets: `${PREFIX}presets`,
   activities: `${PREFIX}activities`,
   body: `${PREFIX}body`,
 }
@@ -31,6 +32,14 @@ export const store = {
   saveFood: (food: FoodLog) => write(KEYS.foods, newestFirst([food, ...store.getFoods()])),
   updateFood: (updatedFood: FoodLog) => write(KEYS.foods, newestFirst(store.getFoods().map((food) => food.id === updatedFood.id ? updatedFood : food))),
   deleteFood: (id: string) => write(KEYS.foods, store.getFoods().filter((food) => food.id !== id)),
+
+  getFoodPresets: () => [...read<FoodPreset[]>(KEYS.presets, [])].sort((a, b) => a.name.localeCompare(b.name, 'th')),
+  saveFoodPreset: (preset: FoodPreset) => {
+    const existing = store.getFoodPresets()
+    const sameName = existing.find((item) => item.name.trim().toLocaleLowerCase('th') === preset.name.trim().toLocaleLowerCase('th'))
+    write(KEYS.presets, [...existing.filter((item) => item.id !== sameName?.id), { ...preset, id: sameName?.id ?? preset.id }])
+  },
+  deleteFoodPreset: (id: string) => write(KEYS.presets, store.getFoodPresets().filter((preset) => preset.id !== id)),
 
   getActivities: () => newestFirst(read<ActivityLog[]>(KEYS.activities, [])),
   saveActivity: (activity: ActivityLog) => write(KEYS.activities, newestFirst([activity, ...store.getActivities()])),

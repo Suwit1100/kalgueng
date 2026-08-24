@@ -4,7 +4,7 @@ import { AiEstimateError, estimateNutritionWithAI } from './lib/ai'
 import { loadGoogleIdentity, signInWithGoogle } from './lib/google'
 import { store } from './lib/storage'
 import { bestGoalStreak, meetsGoal, totalsForDate } from './lib/stats'
-import type { ActivityLog, BodyMeasurement, FoodLog, Macro, Targets, User } from './types'
+import type { ActivityLog, BodyMeasurement, FoodLog, FoodPreset, Macro, Targets, User } from './types'
 
 type Tab = 'today' | 'add' | 'activity' | 'history' | 'stats' | 'body' | 'settings'
 type MacroKey = 'protein' | 'carbs' | 'fat'
@@ -38,6 +38,7 @@ const tab = ref<Tab>('today')
 const isOnboarding = ref(user.value !== null && !store.hasTargets())
 const targets = ref<Targets>(store.getTargets())
 const foods = ref<FoodLog[]>(store.getFoods())
+const foodPresets = ref<FoodPreset[]>(store.getFoodPresets())
 const activities = ref<ActivityLog[]>(store.getActivities())
 const measurements = ref<BodyMeasurement[]>(store.getBodyMeasurements())
 const message = ref('')
@@ -52,6 +53,7 @@ const copiedSummary = ref(false)
 const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date())
 const form = ref({ name: '', meal: 'lunch' as FoodLog['meal'], date: today, calories: '', protein: '', carbs: '', fat: '' })
 const editingFoodId = ref<string | null>(null)
+const saveAsPreset = ref(false)
 const activityForm = ref({ name: '', calories: '', date: today })
 const editingActivityId = ref<string | null>(null)
 const bodyForm = ref({ date: today, weight: '', bodyFat: '', muscleMass: '' })
@@ -216,6 +218,7 @@ function saveTargets() {
 function resetFoodForm() {
   form.value = { name: '', meal: 'lunch', date: today, calories: '', protein: '', carbs: '', fat: '' }
   editingFoodId.value = null
+  saveAsPreset.value = false
   clearMessage()
 }
 function openFoodForm() { resetFoodForm(); tab.value = 'add' }
@@ -237,9 +240,28 @@ function saveFood() {
     fat: Number(value.fat) || 0,
   }
   if (editingFoodId.value) store.updateFood(food); else store.saveFood(food)
+  if (!editingFoodId.value && saveAsPreset.value) {
+    store.saveFoodPreset({ id: crypto.randomUUID(), name: food.name, meal: food.meal, calories: food.calories, protein: food.protein, carbs: food.carbs, fat: food.fat, createdAt: new Date().toISOString() })
+    foodPresets.value = store.getFoodPresets()
+  }
   foods.value = store.getFoods()
   resetFoodForm()
   tab.value = food.date === today ? 'today' : 'history'
+}
+function applyFoodPreset(preset: FoodPreset) {
+  form.value = { name: preset.name, meal: preset.meal, date: form.value.date, calories: String(preset.calories), protein: String(preset.protein), carbs: String(preset.carbs), fat: String(preset.fat) }
+  setMessage(`เลือกเมนู “${preset.name}” แล้ว แก้ไขได้ก่อนบันทึก`, 'info')
+}
+function saveFoodAsPreset(food: FoodLog) {
+  store.saveFoodPreset({ id: crypto.randomUUID(), name: food.name, meal: food.meal, calories: food.calories, protein: food.protein, carbs: food.carbs, fat: food.fat, createdAt: new Date().toISOString() })
+  foodPresets.value = store.getFoodPresets()
+  setMessage(`บันทึก “${food.name}” เป็นเมนูของฉันแล้ว`, 'success')
+}
+function deleteFoodPreset(id: string) {
+  const preset = foodPresets.value.find((item) => item.id === id)
+  if (!preset || !confirm(`ลบเมนู “${preset.name}” หรือไม่?`)) return
+  store.deleteFoodPreset(id)
+  foodPresets.value = store.getFoodPresets()
 }
 async function estimateFood() {
   if (!isOnline.value) { setMessage('ขณะนี้ออฟไลน์อยู่ การประเมินด้วย AI ต้องใช้อินเทอร์เน็ต'); return }
@@ -464,7 +486,7 @@ onBeforeUnmount(() => {
         <div v-else class="mt-3 space-y-2">
           <article v-for="food in todayFoods" :key="food.id" class="flex items-center gap-3 rounded-2xl bg-white p-4 shadow-sm">
             <div class="min-w-0 flex-1"><p class="truncate font-semibold">{{ food.name }}</p><p class="text-sm text-slate-500">{{ mealLabels[food.meal] }} · P {{ food.protein }}g · C {{ food.carbs }}g · F {{ food.fat }}g</p></div>
-            <div class="shrink-0 text-right"><p class="font-bold">{{ food.calories }} kcal</p><div class="mt-1 flex justify-end gap-3"><button type="button" class="text-xs font-medium text-teal-700" @click="editFood(food)">แก้ไข</button><button type="button" class="text-xs font-medium text-red-600" @click="removeFood(food.id)">ลบ</button></div></div>
+            <div class="shrink-0 text-right"><p class="font-bold">{{ food.calories }} kcal</p><div class="mt-1 flex justify-end gap-3"><button type="button" class="text-xs font-medium text-amber-700" @click="saveFoodAsPreset(food)">เก็บเมนู</button><button type="button" class="text-xs font-medium text-teal-700" @click="editFood(food)">แก้ไข</button><button type="button" class="text-xs font-medium text-red-600" @click="removeFood(food.id)">ลบ</button></div></div>
           </article>
         </div>
 
@@ -482,10 +504,12 @@ onBeforeUnmount(() => {
         <div class="flex items-center gap-3"><button type="button" class="touch-button text-2xl" aria-label="กลับหน้าวันนี้" @click="resetFoodForm(); goTo('today')">‹</button><h1 class="text-2xl font-bold">{{ editingFoodId ? 'แก้ไขอาหาร' : 'เพิ่มอาหาร' }}</h1></div>
         <p class="mt-2 text-slate-600">พิมพ์รายละเอียดอาหารให้ AI ประเมิน แล้วตรวจแก้ตัวเลขก่อนบันทึก</p>
         <form class="mt-6 space-y-4" @submit.prevent="saveFood">
+          <div v-if="!editingFoodId" class="rounded-2xl bg-white p-4 shadow-sm"><div class="flex items-center justify-between"><div><p class="font-semibold">เมนูของฉัน</p><p class="text-sm text-slate-500">เลือกอาหารที่กินบ่อยเพื่อเติมข้อมูลทันที</p></div><span class="rounded-full bg-teal-50 px-2 py-1 text-xs font-semibold text-teal-800">{{ foodPresets.length }} เมนู</span></div><p v-if="foodPresets.length === 0" class="mt-3 text-sm text-slate-500">บันทึกรายการอาหารแล้วเลือก “บันทึกเป็นเมนูของฉัน” เพื่อใช้ซ้ำครั้งถัดไป</p><div v-else class="mt-3 flex gap-2 overflow-x-auto pb-1"><button v-for="preset in foodPresets" :key="preset.id" type="button" class="shrink-0 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-left text-sm text-teal-950" @click="applyFoodPreset(preset)"><span class="block max-w-36 truncate font-semibold">{{ preset.name }}</span><span class="block text-xs text-teal-700">{{ preset.calories }} kcal · P {{ preset.protein }}g</span></button></div><div v-if="foodPresets.length" class="mt-3 flex flex-wrap gap-x-3 gap-y-1"><button v-for="preset in foodPresets" :key="`delete-${preset.id}`" type="button" class="text-xs text-red-600 underline" @click="deleteFoodPreset(preset.id)">ลบ {{ preset.name }}</button></div></div>
           <label class="block"><span class="mb-1 block text-sm font-medium text-slate-700">รายละเอียดอาหาร</span><input v-model="form.name" :disabled="isEstimating" maxlength="500" placeholder="เช่น กะเพราไก่ไข่ดาว 1 จาน" class="w-full rounded-2xl border-0 bg-white px-4 py-4 shadow-sm outline-teal-600 disabled:opacity-60"></label>
           <button v-if="!editingFoodId" type="button" :disabled="isEstimating || !isOnline" class="w-full rounded-2xl border border-teal-200 bg-teal-50 py-3 font-semibold text-teal-800 disabled:opacity-50" @click="estimateFood">{{ !isOnline ? 'ออฟไลน์ — AI ใช้งานไม่ได้' : isEstimating ? 'AI กำลังประเมิน…' : messageKind === 'error' && message ? '✦ ลองประเมินด้วย AI อีกครั้ง' : '✦ ประเมินด้วย AI' }}</button>
           <div class="grid grid-cols-2 gap-3"><label class="block"><span class="mb-1 block text-sm text-slate-600">วันที่</span><input v-model="form.date" type="date" class="w-full rounded-xl bg-white px-3 py-3 shadow-sm outline-teal-600"></label><label class="block"><span class="mb-1 block text-sm text-slate-600">มื้ออาหาร</span><select v-model="form.meal" class="w-full rounded-xl bg-white px-3 py-3 shadow-sm outline-teal-600"><option value="breakfast">อาหารเช้า</option><option value="lunch">อาหารกลางวัน</option><option value="dinner">อาหารเย็น</option><option value="snack">ของว่าง</option></select></label></div>
           <div class="grid grid-cols-2 gap-3"><label v-for="item in targetFields" :key="item.key" class="block"><span class="mb-1 block text-sm text-slate-600">{{ item.label }} ({{ item.unit }})</span><input v-model="form[item.key]" type="number" min="0" step="0.1" inputmode="decimal" class="w-full rounded-xl bg-white px-3 py-3 shadow-sm outline-teal-600"></label></div>
+          <label v-if="!editingFoodId" class="flex cursor-pointer items-center gap-3 rounded-2xl border border-teal-100 bg-teal-50 p-4"><input v-model="saveAsPreset" type="checkbox" class="h-5 w-5 accent-teal-700"><span><span class="block font-semibold text-teal-950">บันทึกเป็นเมนูของฉัน</span><span class="block text-sm text-teal-800">ใช้ชื่อและสารอาหารชุดนี้ซ้ำได้ในครั้งถัดไป</span></span></label>
           <p v-if="message" class="text-sm" :class="messageClass" role="status" aria-live="polite">{{ message }}</p>
           <div class="flex gap-3"><button v-if="editingFoodId" type="button" class="flex-1 rounded-2xl border border-slate-200 bg-white py-4 font-semibold" @click="resetFoodForm(); goTo('today')">ยกเลิก</button><button :disabled="isEstimating" class="flex-1 rounded-2xl bg-teal-700 py-4 font-semibold text-white disabled:opacity-60">{{ editingFoodId ? 'บันทึกการแก้ไข' : 'บันทึกอาหาร' }}</button></div>
         </form>
@@ -494,7 +518,7 @@ onBeforeUnmount(() => {
       <section v-else-if="tab === 'history'" class="px-5">
         <h1 class="text-2xl font-bold">ประวัติอาหาร</h1><p class="mt-2 text-slate-600">รายการที่บันทึกไว้ย้อนหลัง</p>
         <p v-if="historyDays.length === 0" class="mt-6 rounded-2xl bg-white p-5 text-center text-slate-500">ยังไม่มีประวัติอาหาร</p>
-        <div v-else class="mt-6 space-y-6"><section v-for="day in historyDays" :key="day"><div class="mb-2 flex items-center justify-between"><h2 class="font-bold">{{ formatHistoryDate(day) }}</h2><p class="text-sm text-slate-500">{{ dailyCalories(day) }} kcal</p></div><div class="space-y-2"><article v-for="food in foods.filter((item) => item.date === day)" :key="food.id" class="flex items-center gap-3 rounded-2xl bg-white p-4 shadow-sm"><div class="min-w-0 flex-1"><p class="truncate font-semibold">{{ food.name }}</p><p class="text-sm text-slate-500">P {{ food.protein }}g · C {{ food.carbs }}g · F {{ food.fat }}g</p></div><div class="shrink-0 text-right"><p class="font-bold">{{ food.calories }} kcal</p><div class="mt-1 flex gap-3"><button type="button" class="text-xs font-medium text-teal-700" @click="editFood(food)">แก้ไข</button><button type="button" class="text-xs font-medium text-red-600" @click="removeFood(food.id)">ลบ</button></div></div></article></div></section></div>
+        <div v-else class="mt-6 space-y-6"><section v-for="day in historyDays" :key="day"><div class="mb-2 flex items-center justify-between"><h2 class="font-bold">{{ formatHistoryDate(day) }}</h2><p class="text-sm text-slate-500">{{ dailyCalories(day) }} kcal</p></div><div class="space-y-2"><article v-for="food in foods.filter((item) => item.date === day)" :key="food.id" class="flex items-center gap-3 rounded-2xl bg-white p-4 shadow-sm"><div class="min-w-0 flex-1"><p class="truncate font-semibold">{{ food.name }}</p><p class="text-sm text-slate-500">P {{ food.protein }}g · C {{ food.carbs }}g · F {{ food.fat }}g</p></div><div class="shrink-0 text-right"><p class="font-bold">{{ food.calories }} kcal</p><div class="mt-1 flex gap-3"><button type="button" class="text-xs font-medium text-amber-700" @click="saveFoodAsPreset(food)">เก็บเมนู</button><button type="button" class="text-xs font-medium text-teal-700" @click="editFood(food)">แก้ไข</button><button type="button" class="text-xs font-medium text-red-600" @click="removeFood(food.id)">ลบ</button></div></div></article></div></section></div>
       </section>
 
       <section v-else-if="tab === 'stats'" class="px-5">
