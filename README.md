@@ -1,18 +1,18 @@
 # แคลกูเอง
 
-Mobile-first calorie, macro, activity and body-measurement tracker. App data is stored in browser Local Storage. Food text is sent to the server only when the user explicitly asks AI to estimate nutrition; the OpenTyphoon API key stays server-side.
+Mobile-first calorie, macro, activity and body-measurement tracker. App data is stored in browser Local Storage. Food text is sent to the server only when the user explicitly asks AI to estimate nutrition. Nutrition-label images are sent to Typhoon OCR only after the user selects a photo and taps scan. The image is not saved with food logs. The OpenTyphoon API key stays server-side.
 
 ## Local development
 
 1. Copy `.env.example` to `.env.local`.
 2. Set `VITE_GOOGLE_CLIENT_ID` and `OPENTYPHOON_API_KEY`.
 3. Run `npm install` (or `npm ci` from a clean checkout).
-4. Run `npm run dev`. Use Vite rather than a static file server because `/api/estimate-food` is provided by the Vite dev middleware locally.
+4. Run `npm run dev`. Use Vite rather than a static file server because `/api/estimate-food` and `/api/scan-label` are provided by the Vite dev middleware locally.
 5. Verify with `npm test` and `npm run build`.
 
 ## Production deployment on Vercel
 
-The repository is ready for Vercel: the production AI endpoint is `api/estimate-food.js`, while `vercel.json` keeps SPA routing and prevents stale service-worker updates.
+The repository is ready for Vercel: the production AI endpoints are `api/estimate-food.js` and `api/scan-label.js`, while `vercel.json` keeps SPA routing and prevents stale service-worker updates.
 
 1. Import the repository into Vercel and use the Vite defaults.
 2. In Project Settings -> Environment Variables, add `OPENTYPHOON_API_KEY` as a server secret and `VITE_GOOGLE_CLIENT_ID` as the browser Google client ID. Add them to the Production environment (and Preview if desired).
@@ -42,7 +42,7 @@ The app includes:
 - iPhone/iPad Add to Home Screen guidance.
 - A manifest shortcut for opening the Add Food flow.
 
-The AI endpoint is intentionally never cached by the service worker.
+The AI and OCR endpoints are intentionally never cached by the service worker.
 
 ## Data and privacy
 

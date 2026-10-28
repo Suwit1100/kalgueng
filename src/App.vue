@@ -7,7 +7,7 @@ import { store } from './lib/storage'
 import { bestGoalStreak, meetsGoal, totalsForDate } from './lib/stats'
 import type { ActivityLog, BodyMeasurement, FoodLog, FoodPreset, Macro, Targets, User } from './types'
 
-type Tab = 'today' | 'add' | 'menus' | 'activity' | 'history' | 'stats' | 'body' | 'settings'
+type Tab = 'today' | 'add' | 'scan' | 'menus' | 'activity' | 'history' | 'stats' | 'body' | 'settings'
 type MacroKey = 'protein' | 'carbs' | 'fat'
 type BodyMetricKey = 'weight' | 'bodyFat' | 'muscleMass'
 type MessageKind = 'error' | 'success' | 'info'
@@ -45,6 +45,12 @@ const measurements = ref<BodyMeasurement[]>(store.getBodyMeasurements())
 const message = ref('')
 const messageKind = ref<MessageKind>('error')
 const isEstimating = ref(false)
+const isScanning = ref(false)
+const scanPreview = ref('')
+const scanText = ref('')
+const scanServing = ref('')
+const scanValues = ref<Partial<Macro>>({})
+const scanFile = ref<HTMLInputElement | null>(null)
 const isSigningIn = ref(false)
 const isOnline = ref(typeof navigator === 'undefined' ? true : navigator.onLine)
 const installPrompt = ref<InstallPromptEvent | null>(null)
@@ -223,6 +229,51 @@ function resetFoodForm() {
   clearMessage()
 }
 function openFoodForm() { resetFoodForm(); tab.value = 'add' }
+function openScanner() { clearMessage(); tab.value = 'scan' }
+function resetScan() { scanPreview.value = ''; scanText.value = ''; scanServing.value = ''; scanValues.value = {}; if (scanFile.value) scanFile.value.value = '' }
+async function onScanFile(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  resetScan()
+  if (!['image/jpeg', 'image/png'].includes(file.type) || file.size > 3 * 1024 * 1024) {
+    setMessage('เลือกรูป JPG หรือ PNG ขนาดไม่เกิน 3 MB')
+    return
+  }
+  try {
+    scanPreview.value = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+    clearMessage()
+  } catch { setMessage('เปิดรูปภาพไม่สำเร็จ กรุณาเลือกใหม่') }
+}
+async function scanNutritionLabel() {
+  if (!scanPreview.value) return
+  isScanning.value = true
+  clearMessage()
+  try {
+    const response = await fetch('/api/scan-label', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: scanPreview.value }) })
+    const result = await response.json()
+    if (!response.ok) throw new Error(result?.error || 'สแกนฉลากไม่สำเร็จ')
+    scanText.value = result.text
+    scanServing.value = result.serving
+    scanValues.value = result.values
+    setMessage('อ่านฉลากแล้ว กรุณาตรวจตัวเลขและหน่วยบริโภคก่อนบันทึก', 'success')
+  } catch (error) { setMessage(error instanceof Error ? error.message : 'สแกนฉลากไม่สำเร็จ') }
+  finally { isScanning.value = false }
+}
+function useScanResult() {
+  resetFoodForm()
+  for (const key of ['calories', 'protein', 'carbs', 'fat'] as const) {
+    const value = scanValues.value[key]
+    form.value[key] = value === undefined ? '' : String(value)
+  }
+  form.value.name = ''
+  tab.value = 'add'
+  setMessage('กรอกชื่ออาหาร และตรวจค่าจากฉลากก่อนบันทึก', 'info')
+}
 function openPresetCreator() { resetFoodForm(); saveAsPreset.value = true; tab.value = 'add' }
 function saveFood() {
   const value = form.value
@@ -428,7 +479,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="app-shell mx-auto min-h-screen max-w-lg bg-stone-50 pb-28">
+  <main class="app-shell mx-auto min-h-screen max-w-lg pb-28">
     <section v-if="!user" class="flex min-h-screen flex-col justify-center px-6 text-center">
       <img src="/icon-192.png" alt="" class="mx-auto mb-6 h-20 w-20 rounded-3xl shadow-lg" width="80" height="80">
       <h1 class="text-3xl font-bold tracking-tight">แคลกูเอง</h1>
@@ -457,9 +508,9 @@ onBeforeUnmount(() => {
     </section>
 
     <template v-else>
-      <header class="flex items-center justify-between px-5 pb-5 pt-7">
-        <div><p class="text-sm text-slate-500">{{ dateText }}</p><h1 class="text-2xl font-bold">สวัสดี {{ user.name?.split(' ')[0] || 'คุณ' }}</h1></div>
-        <img v-if="user.picture" :src="user.picture" class="h-10 w-10 rounded-full" :alt="`รูปโปรไฟล์ของ ${user.name}`" width="40" height="40" referrerpolicy="no-referrer">
+      <header class="app-header flex items-center justify-between px-5 pb-5 pt-7">
+        <div><p class="header-eyebrow">แคลกูเอง <span>· {{ dateText }}</span></p><h1 class="text-2xl font-bold">สวัสดี {{ user.name?.split(' ')[0] || 'คุณ' }} <span aria-hidden="true">✳</span></h1></div>
+        <button type="button" class="profile-button" aria-label="เปิดตั้งค่า" @click="goTo('settings')"><img v-if="user.picture" :src="user.picture" class="h-10 w-10 rounded-full" :alt="`รูปโปรไฟล์ของ ${user.name}`" width="40" height="40" referrerpolicy="no-referrer"><span v-else>☻</span></button>
       </header>
 
       <div v-if="tab === 'today' && canInstall" class="px-5 pb-3">
@@ -470,15 +521,18 @@ onBeforeUnmount(() => {
       </div>
 
       <section v-if="tab === 'today'" class="px-5">
-        <div class="rounded-3xl bg-teal-700 p-6 text-white shadow-lg">
-          <div class="flex items-start justify-between gap-3"><div><p class="font-medium text-teal-100">วันนี้กินไปแล้ว</p><p class="mt-2 text-4xl font-bold">{{ totals.calories.toLocaleString() }} <span class="text-lg font-medium">kcal</span></p></div><span v-if="todayGoalMet" class="rounded-full bg-white/15 px-3 py-1 text-xs font-semibold">✓ ครบเป้า</span></div>
-          <p class="mt-5 text-sm text-teal-100">เป้าวันนี้ {{ adjustedCalories.toLocaleString() }} kcal <span v-if="activityCalories">({{ targets.calories.toLocaleString() }} + กิจกรรม {{ activityCalories.toLocaleString() }})</span></p>
-          <p class="mt-2 text-teal-100">เหลือกินได้</p><p class="text-2xl font-bold">{{ Math.max(0, remaining.calories).toLocaleString() }} kcal</p>
+        <div class="hero-card">
+          <div class="hero-top"><span class="hero-kicker">พลังงานคงเหลือวันนี้</span><span class="hero-date">{{ todayGoalMet ? '✓ ครบเป้า' : 'เป้าหมายรายวัน' }}</span></div>
+          <div class="hero-number">{{ Math.max(0, remaining.calories).toLocaleString() }} <span>kcal</span></div>
+          <div class="hero-progress" role="progressbar" aria-label="พลังงานที่กินวันนี้" :aria-valuenow="totals.calories" :aria-valuemax="adjustedCalories"><span :style="{ width: `${percent(totals.calories, adjustedCalories)}%` }" /></div>
+          <div class="hero-breakdown"><span>กินแล้ว <strong>{{ totals.calories.toLocaleString() }}</strong></span><span>เป้าหมาย <strong>{{ adjustedCalories.toLocaleString() }}</strong></span></div>
+          <p v-if="activityCalories" class="hero-footnote">รวมพลังงานจากกิจกรรม +{{ activityCalories.toLocaleString() }} kcal</p>
         </div>
+        <div class="quick-actions"><button type="button" class="quick-action quick-primary" @click="openFoodForm"><span class="quick-icon">＋</span><span><strong>เพิ่มอาหาร</strong><small>บันทึกมื้อใหม่</small></span></button><button type="button" class="quick-action" @click="openScanner"><span class="quick-icon">▣</span><span><strong>สแกนฉลาก</strong><small>อ่านโภชนาการจากรูป</small></span></button></div>
 
         <h2 class="mt-7 text-lg font-bold">สารอาหาร</h2>
         <div class="mt-3 grid grid-cols-3 gap-3">
-          <div v-for="macro in macroCards" :key="macro.key" class="rounded-2xl bg-white p-3 shadow-sm">
+          <div v-for="macro in macroCards" :key="macro.key" class="macro-card rounded-2xl bg-white p-3 shadow-sm">
             <p class="text-xs text-slate-500">{{ macro.label }}</p>
             <p class="mt-1 font-bold">{{ totals[macro.key] }}<span class="text-xs font-normal"> / {{ targets[macro.key] }}g</span></p>
             <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-stone-200" role="progressbar" :aria-label="macro.label" :aria-valuenow="totals[macro.key]" :aria-valuemax="targets[macro.key] || 1"><div :class="macro.barClass" class="h-full" :style="{ width: `${percent(totals[macro.key], targets[macro.key])}%` }" /></div>
@@ -486,7 +540,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="mt-7 flex items-center justify-between"><h2 class="text-lg font-bold">อาหารวันนี้</h2><div class="flex gap-3"><button type="button" class="text-sm font-semibold text-amber-700" @click="goTo('menus')">เมนูอาหาร</button><button type="button" class="text-sm font-semibold text-teal-700" @click="openFoodForm">+ เพิ่มอาหาร</button></div></div>
-        <p v-if="todayFoods.length === 0" class="mt-3 rounded-2xl bg-white p-5 text-center text-slate-500">ยังไม่มีรายการอาหารวันนี้</p>
+        <div v-if="todayFoods.length === 0" class="empty-state mt-3"><span class="empty-icon">◌</span><p class="font-semibold">เริ่มบันทึกมื้อแรกกันเลย</p><p class="text-sm text-slate-500">เพิ่มอาหารหรือสแกนฉลากเพื่อดูภาพรวมวันนี้</p></div>
         <div v-else class="mt-3 space-y-2">
           <article v-for="food in todayFoods" :key="food.id" class="flex items-center gap-3 rounded-2xl bg-white p-4 shadow-sm">
             <div class="min-w-0 flex-1"><p class="truncate font-semibold">{{ food.name }}</p><p class="text-sm text-slate-500">{{ mealLabels[food.meal] }} · P {{ food.protein }}g · C {{ food.carbs }}g · F {{ food.fat }}g</p></div>
@@ -507,6 +561,7 @@ onBeforeUnmount(() => {
       <section v-else-if="tab === 'add'" class="px-5">
         <div class="flex items-center gap-3"><button type="button" class="touch-button text-2xl" aria-label="กลับหน้าวันนี้" @click="resetFoodForm(); goTo('today')">‹</button><h1 class="text-2xl font-bold">{{ editingFoodId ? 'แก้ไขอาหาร' : 'เพิ่มอาหาร' }}</h1></div>
         <p class="mt-2 text-slate-600">พิมพ์รายละเอียดอาหารให้ AI ประเมิน แล้วตรวจแก้ตัวเลขก่อนบันทึก</p>
+        <button v-if="!editingFoodId" type="button" class="scan-invite" @click="openScanner"><span class="scan-invite-icon">▣</span><span><strong>มีฉลากอาหาร?</strong><small>ถ่ายรูปเพื่อเติมข้อมูลโภชนาการ</small></span><span>→</span></button>
         <form class="mt-6 space-y-4" @submit.prevent="saveFood">
           <div v-if="!editingFoodId" class="rounded-2xl bg-white p-4 shadow-sm"><div class="flex items-center justify-between gap-3"><div><p class="font-semibold">เมนูของฉัน</p><p class="text-sm text-slate-500">เลือกอาหารที่กินบ่อยเพื่อเติมข้อมูลทันที</p></div><button type="button" class="shrink-0 text-sm font-semibold text-amber-700" @click="goTo('menus')">จัดการเมนู</button></div><p v-if="foodPresets.length === 0" class="mt-3 text-sm text-slate-500">ยังไม่มีเมนูที่บันทึกไว้</p><div v-else class="mt-3 flex gap-2 overflow-x-auto pb-1"><button v-for="preset in foodPresets" :key="preset.id" type="button" class="shrink-0 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-left text-sm text-teal-950" @click="applyFoodPreset(preset)"><span class="block max-w-36 truncate font-semibold">{{ preset.name }}</span><span class="block text-xs text-teal-700">{{ preset.calories }} kcal · P {{ preset.protein }}g</span></button></div></div>
           <label class="block"><span class="mb-1 block text-sm font-medium text-slate-700">รายละเอียดอาหาร</span><input v-model="form.name" :disabled="isEstimating" maxlength="500" placeholder="เช่น กะเพราไก่ไข่ดาว 1 จาน" class="w-full rounded-2xl border-0 bg-white px-4 py-4 shadow-sm outline-teal-600 disabled:opacity-60"></label>
@@ -517,6 +572,15 @@ onBeforeUnmount(() => {
           <p v-if="message" class="text-sm" :class="messageClass" role="status" aria-live="polite">{{ message }}</p>
           <div class="flex gap-3"><button v-if="editingFoodId" type="button" class="flex-1 rounded-2xl border border-slate-200 bg-white py-4 font-semibold" @click="resetFoodForm(); goTo('today')">ยกเลิก</button><button :disabled="isEstimating" class="flex-1 rounded-2xl bg-teal-700 py-4 font-semibold text-white disabled:opacity-60">{{ editingFoodId ? 'บันทึกการแก้ไข' : 'บันทึกอาหาร' }}</button></div>
         </form>
+      </section>
+
+      <section v-else-if="tab === 'scan'" class="px-5">
+        <div class="flex items-center gap-3"><button type="button" class="touch-button text-2xl" aria-label="กลับหน้าเพิ่มอาหาร" @click="goTo('add')">‹</button><div><p class="section-eyebrow">บันทึกให้ง่ายขึ้น</p><h1 class="text-2xl font-bold">สแกนฉลากอาหาร</h1></div></div>
+        <p class="mt-3 text-slate-600">ถ่ายรูปตารางโภชนาการให้ชัด อ่านตัวเลขจากฉลาก แล้วตรวจอีกครั้งก่อนบันทึก</p>
+        <label class="scan-drop"><input ref="scanFile" type="file" accept="image/jpeg,image/png" capture="environment" class="sr-only" @change="onScanFile"><img v-if="scanPreview" :src="scanPreview" alt="รูปฉลากที่เลือก" class="scan-preview"><template v-else><span class="scan-camera">▣</span><strong>แตะเพื่อถ่ายรูปหรือเลือกรูป</strong><small>JPG หรือ PNG · ไม่เกิน 3 MB</small></template></label>
+        <button type="button" class="primary-action mt-4 w-full" :disabled="!scanPreview || isScanning || !isOnline" @click="scanNutritionLabel">{{ isScanning ? 'กำลังอ่านฉลาก…' : !isOnline ? 'ต้องเชื่อมต่ออินเทอร์เน็ต' : 'อ่านข้อมูลจากฉลาก' }}</button>
+        <p v-if="message" class="mt-4 text-sm" :class="messageClass" role="status" aria-live="polite">{{ message }}</p>
+        <div v-if="scanText" class="scan-result"><div class="flex items-center justify-between"><h2 class="text-lg font-bold">ข้อมูลที่อ่านได้</h2><span class="result-badge">ตรวจสอบก่อนใช้</span></div><p v-if="scanServing" class="mt-2 text-sm text-slate-600">{{ scanServing }}</p><div class="scan-grid"><div v-for="item in targetFields" :key="item.key"><small>{{ item.label }}</small><strong>{{ scanValues[item.key] ?? '—' }} <span v-if="scanValues[item.key] !== undefined">{{ item.unit }}</span></strong></div></div><button type="button" class="primary-action mt-5 w-full" @click="useScanResult">นำไปกรอกอาหาร →</button><details class="mt-5"><summary class="cursor-pointer text-sm font-semibold text-teal-800">ดูข้อความจากฉลาก</summary><pre class="scan-raw">{{ scanText }}</pre></details></div>
       </section>
 
       <section v-else-if="tab === 'menus'" class="px-5">
@@ -611,16 +675,16 @@ onBeforeUnmount(() => {
 
         <div class="mt-7 rounded-2xl bg-white p-4 shadow-sm"><p class="font-semibold">ติดตั้งเป็นแอป (PWA)</p><p v-if="isInstalled" class="mt-1 text-sm text-teal-700">ติดตั้งบนอุปกรณ์นี้แล้ว</p><template v-else><p class="mt-1 text-sm text-slate-600">ติดตั้งบนหน้าจอหลักเพื่อเปิดแบบเต็มจอและใช้ข้อมูลที่เคยเปิดไว้ได้แม้ออฟไลน์บางส่วน</p><button v-if="canInstall" type="button" class="mt-3 rounded-xl bg-teal-700 px-4 py-2 font-semibold text-white" @click="installApp">ติดตั้งแอป</button><p v-else-if="isIosDevice" class="mt-3 text-sm text-slate-600">บน iPhone/iPad: เปิดเมนู Share แล้วเลือก “Add to Home Screen”</p><p v-else class="mt-3 text-sm text-slate-500">ถ้าเบราว์เซอร์รองรับ ปุ่มติดตั้งจะปรากฏเมื่อเงื่อนไข PWA พร้อม</p></template></div>
 
-        <div class="mt-4 rounded-2xl bg-white p-4 shadow-sm"><p class="font-semibold">ความเป็นส่วนตัว</p><p class="mt-1 text-sm leading-6 text-slate-600">อาหาร กิจกรรม สัดส่วน เป้าหมาย และโปรไฟล์ที่ใช้ในแอปเก็บใน Local Storage ของเบราว์เซอร์นี้ ส่วนข้อความอาหารจะถูกส่งไปยัง API ฝั่งเซิร์ฟเวอร์เฉพาะตอนที่คุณกดประเมินด้วย AI</p></div>
+        <div class="mt-4 rounded-2xl bg-white p-4 shadow-sm"><p class="font-semibold">ความเป็นส่วนตัว</p><p class="mt-1 text-sm leading-6 text-slate-600">อาหาร กิจกรรม สัดส่วน เป้าหมาย และโปรไฟล์ที่ใช้ในแอปเก็บใน Local Storage ของเบราว์เซอร์นี้ ข้อความอาหารจะถูกส่งไปประเมินด้วย AI เมื่อคุณกดประเมิน และรูปฉลากจะถูกส่งไปยัง Typhoon OCR เมื่อคุณกดอ่านฉลาก โดยไม่บันทึกรูปไว้ในข้อมูลแอป</p></div>
 
         <div class="mt-4 rounded-2xl border border-red-100 bg-red-50 p-4"><p class="font-semibold text-red-800">ลบบัญชีและข้อมูลทั้งหมด</p><p class="mt-1 text-sm text-red-700">ลบข้อมูลทุก key ของแอปที่ขึ้นต้นด้วย <code>kalgueng:</code> จาก Local Storage รวมถึงข้อมูลเข้าสู่ระบบบนอุปกรณ์นี้</p><button type="button" class="mt-3 rounded-xl bg-red-600 px-4 py-2 font-semibold text-white" @click="deleteAccountAndData">ลบบัญชีและข้อมูล</button></div>
         <button type="button" class="mt-3 w-full rounded-2xl py-3 font-medium text-red-600" @click="logout">ออกจากระบบ</button>
       </section>
 
-      <nav class="safe-nav fixed bottom-0 left-1/2 z-20 flex w-full max-w-lg -translate-x-1/2 justify-around border-t border-stone-200 bg-white/95 px-2 pt-2 backdrop-blur" aria-label="เมนูหลัก">
+      <nav class="safe-nav app-nav fixed bottom-0 left-1/2 z-20 flex w-full max-w-lg -translate-x-1/2 justify-around bg-white/95 px-2 pt-2 backdrop-blur" aria-label="เมนูหลัก">
         <button type="button" class="nav-button" :class="tab === 'today' ? 'text-teal-700' : 'text-slate-500'" :aria-current="tab === 'today' ? 'page' : undefined" @click="goTo('today')">⌂<span>วันนี้</span></button>
         <button type="button" class="nav-button" :class="tab === 'history' ? 'text-teal-700' : 'text-slate-500'" :aria-current="tab === 'history' ? 'page' : undefined" @click="goTo('history')">◷<span>ประวัติ</span></button>
-        <button type="button" class="-mt-7 grid h-14 w-14 place-items-center rounded-full bg-teal-700 text-3xl text-white shadow-lg" aria-label="เพิ่มอาหาร" @click="openFoodForm">+</button>
+        <button type="button" class="nav-add -mt-7 grid h-14 w-14 place-items-center rounded-full bg-teal-700 text-3xl text-white shadow-lg" aria-label="เพิ่มอาหาร" @click="openFoodForm">+</button>
         <button type="button" class="nav-button" :class="tab === 'stats' ? 'text-teal-700' : 'text-slate-500'" :aria-current="tab === 'stats' ? 'page' : undefined" @click="goTo('stats')">▥<span>สถิติ</span></button>
         <button type="button" class="nav-button" :class="tab === 'body' ? 'text-teal-700' : 'text-slate-500'" :aria-current="tab === 'body' ? 'page' : undefined" @click="goTo('body')">♙<span>ร่างกาย</span></button>
         <button type="button" class="nav-button" :class="tab === 'settings' ? 'text-teal-700' : 'text-slate-500'" :aria-current="tab === 'settings' ? 'page' : undefined" @click="goTo('settings')">⚙<span>ตั้งค่า</span></button>

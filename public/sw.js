@@ -1,4 +1,4 @@
-const VERSION = 'kalgueng-v3'
+const VERSION = 'kalgueng-v4'
 const STATIC_CACHE = `${VERSION}-static`
 const RUNTIME_CACHE = `${VERSION}-runtime`
 const APP_SHELL = ['/', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png', '/offline.html']

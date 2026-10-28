@@ -1,0 +1,1 @@
+export function scanLabel(image: string, apiKey?: string, options?: { fetcher?: typeof fetch; timeoutMs?: number }): Promise<{ text: string; serving: string; values: Partial<{ calories: number; protein: number; carbs: number; fat: number }> }>

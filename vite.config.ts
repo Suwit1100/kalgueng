@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { estimateFood } from './server/estimate-food.js'
+import { scanLabel } from './server/scan-label.js'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
@@ -10,6 +11,25 @@ export default defineConfig(({ mode }) => {
       {
         name: 'local-estimate-food-api',
         configureServer(server) {
+          server.middlewares.use('/api/scan-label', async (request, response) => {
+            response.setHeader('Content-Type', 'application/json; charset=utf-8')
+            response.setHeader('Cache-Control', 'no-store')
+            if (request.method !== 'POST') { response.statusCode = 405; response.end(JSON.stringify({ error: 'Method not allowed' })); return }
+            try {
+              let body = ''
+              for await (const chunk of request) {
+                body += chunk
+                if (body.length > 7_000_000) throw Object.assign(new Error('Image is too large.'), { statusCode: 413, code: 'validation' })
+              }
+              const result = await scanLabel(JSON.parse(body || '{}').image, env.OPENTYPHOON_API_KEY)
+              response.statusCode = 200
+              response.end(JSON.stringify(result))
+            } catch (error) {
+              const serviceError = error as Error & { statusCode?: number; code?: string }
+              response.statusCode = Number(serviceError.statusCode) || (error instanceof SyntaxError ? 400 : 502)
+              response.end(JSON.stringify({ error: serviceError.message, code: serviceError.code || 'provider_error' }))
+            }
+          })
           server.middlewares.use('/api/estimate-food', async (request, response) => {
             response.setHeader('Content-Type', 'application/json; charset=utf-8')
             response.setHeader('Cache-Control', 'no-store')
