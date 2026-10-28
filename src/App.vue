@@ -7,7 +7,7 @@ import { store } from './lib/storage'
 import { bestGoalStreak, meetsGoal, totalsForDate } from './lib/stats'
 import type { ActivityLog, BodyMeasurement, FoodLog, FoodPreset, Macro, Targets, User } from './types'
 
-type Tab = 'today' | 'add' | 'scan' | 'menus' | 'activity' | 'history' | 'stats' | 'body' | 'settings'
+type Tab = 'today' | 'add' | 'scan' | 'menus' | 'activity' | 'history' | 'stats' | 'body' | 'health' | 'settings'
 type MacroKey = 'protein' | 'carbs' | 'fat'
 type BodyMetricKey = 'weight' | 'bodyFat' | 'muscleMass'
 type MessageKind = 'error' | 'success' | 'info'
@@ -51,6 +51,7 @@ const scanText = ref('')
 const scanServing = ref('')
 const scanValues = ref<Partial<Macro>>({})
 const scanFile = ref<HTMLInputElement | null>(null)
+const foodNameInput = ref<HTMLInputElement | null>(null)
 const isSigningIn = ref(false)
 const isOnline = ref(typeof navigator === 'undefined' ? true : navigator.onLine)
 const installPrompt = ref<InstallPromptEvent | null>(null)
@@ -67,6 +68,17 @@ const bodyForm = ref({ date: today, weight: '', bodyFat: '', muscleMass: '' })
 const editingMeasurementId = ref<string | null>(null)
 
 const todayFoods = computed(() => foods.value.filter((food) => food.date === today))
+const diaryMeals: Array<{ key: FoodLog['meal']; label: string; icon: string; hint: string }> = [
+  { key: 'breakfast', label: 'มื้อเช้า', icon: '☀', hint: 'เริ่มวันให้ดี' },
+  { key: 'lunch', label: 'มื้อกลางวัน', icon: '◐', hint: 'เติมพลังระหว่างวัน' },
+  { key: 'dinner', label: 'มื้อเย็น', icon: '☾', hint: 'ปิดท้ายวัน' },
+  { key: 'supper', label: 'มื้อค่ำ', icon: '✦', hint: 'มื้อดึก' },
+  { key: 'snack', label: 'ของว่าง', icon: '◇', hint: 'รายการที่บันทึกไว้เดิม' },
+]
+const foodsForMeal = (meal: FoodLog['meal']) => todayFoods.value.filter((food) => food.meal === meal)
+const caloriesForMeal = (meal: FoodLog['meal']) => foodsForMeal(meal).reduce((sum, food) => sum + food.calories, 0)
+const historyFilter = ref('')
+const visibleHistoryDays = computed(() => historyFilter.value ? historyDays.value.filter((date) => date === historyFilter.value) : historyDays.value)
 const todayActivities = computed(() => activities.value.filter((activity) => activity.date === today))
 const totals = computed<Macro>(() => totalsForDate(foods.value, today))
 const activityCalories = computed(() => burnedForDate(today))
@@ -229,6 +241,8 @@ function resetFoodForm() {
   clearMessage()
 }
 function openFoodForm() { resetFoodForm(); tab.value = 'add' }
+function openFoodForMeal(meal: FoodLog['meal']) { resetFoodForm(); form.value.meal = meal; tab.value = 'add' }
+function focusFoodInput() { foodNameInput.value?.focus() }
 function openScanner() { clearMessage(); tab.value = 'scan' }
 function resetScan() { scanPreview.value = ''; scanText.value = ''; scanServing.value = ''; scanValues.value = {}; if (scanFile.value) scanFile.value.value = '' }
 async function onScanFile(event: Event) {
@@ -508,7 +522,7 @@ onBeforeUnmount(() => {
     </section>
 
     <template v-else>
-      <header class="app-header flex items-center justify-between px-5 pb-5 pt-7">
+      <header v-if="tab === 'today'" class="app-header flex items-center justify-between px-5 pb-5 pt-7">
         <div><p class="header-eyebrow">แคลกูเอง <span>· {{ dateText }}</span></p><h1 class="text-2xl font-bold">สวัสดี {{ user.name?.split(' ')[0] || 'คุณ' }} <span aria-hidden="true">✳</span></h1></div>
         <button type="button" class="profile-button" aria-label="เปิดตั้งค่า" @click="goTo('settings')"><img v-if="user.picture" :src="user.picture" class="h-10 w-10 rounded-full" :alt="`รูปโปรไฟล์ของ ${user.name}`" width="40" height="40" referrerpolicy="no-referrer"><span v-else>☻</span></button>
       </header>
@@ -520,57 +534,48 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <section v-if="tab === 'today'" class="px-5">
-        <div class="hero-card">
-          <div class="hero-top"><span class="hero-kicker">พลังงานคงเหลือวันนี้</span><span class="hero-date">{{ todayGoalMet ? '✓ ครบเป้า' : 'เป้าหมายรายวัน' }}</span></div>
-          <div class="hero-number">{{ Math.max(0, remaining.calories).toLocaleString() }} <span>kcal</span></div>
-          <div class="hero-progress" role="progressbar" aria-label="พลังงานที่กินวันนี้" :aria-valuenow="totals.calories" :aria-valuemax="adjustedCalories"><span :style="{ width: `${percent(totals.calories, adjustedCalories)}%` }" /></div>
-          <div class="hero-breakdown"><span>กินแล้ว <strong>{{ totals.calories.toLocaleString() }}</strong></span><span>เป้าหมาย <strong>{{ adjustedCalories.toLocaleString() }}</strong></span></div>
-          <p v-if="activityCalories" class="hero-footnote">รวมพลังงานจากกิจกรรม +{{ activityCalories.toLocaleString() }} kcal</p>
-        </div>
-        <div class="quick-actions"><button type="button" class="quick-action quick-primary" @click="openFoodForm"><span class="quick-icon">＋</span><span><strong>เพิ่มอาหาร</strong><small>บันทึกมื้อใหม่</small></span></button><button type="button" class="quick-action" @click="openScanner"><span class="quick-icon">▣</span><span><strong>สแกนฉลาก</strong><small>อ่านโภชนาการจากรูป</small></span></button></div>
-
-        <h2 class="mt-7 text-lg font-bold">สารอาหาร</h2>
-        <div class="mt-3 grid grid-cols-3 gap-3">
-          <div v-for="macro in macroCards" :key="macro.key" class="macro-card rounded-2xl bg-white p-3 shadow-sm">
-            <p class="text-xs text-slate-500">{{ macro.label }}</p>
-            <p class="mt-1 font-bold">{{ totals[macro.key] }}<span class="text-xs font-normal"> / {{ targets[macro.key] }}g</span></p>
-            <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-stone-200" role="progressbar" :aria-label="macro.label" :aria-valuenow="totals[macro.key]" :aria-valuemax="targets[macro.key] || 1"><div :class="macro.barClass" class="h-full" :style="{ width: `${percent(totals[macro.key], targets[macro.key])}%` }" /></div>
+      <section v-if="tab === 'today'" class="page-section today-page px-5">
+        <div class="page-heading"><div><p class="page-kicker">ภาพรวมรายวัน</p><h1>วันนี้ของคุณ</h1></div><span class="date-pill">{{ dateText }}</span></div>
+        <div class="overview-panel">
+          <div class="overview-top"><span>เป้าหมายพลังงาน</span><button type="button" @click="goTo('settings')">แก้ไขเป้า ↗</button></div>
+          <div class="overview-main">
+            <div class="calorie-ring" :style="{ '--progress': `${percent(totals.calories, adjustedCalories)}%` }" role="progressbar" aria-label="พลังงานที่กินวันนี้" :aria-valuenow="totals.calories" :aria-valuemax="adjustedCalories || 1"><div><strong>{{ Math.max(0, remaining.calories).toLocaleString() }}</strong><small>kcal คงเหลือ</small></div></div>
+            <div class="overview-copy"><p>{{ todayGoalMet ? 'ครบเป้าหมายแล้ว' : 'ยังเลือกกินได้อีก' }}</p><strong>{{ Math.max(0, remaining.calories).toLocaleString() }} <span>kcal</span></strong><small>วางแผนมื้อต่อไปได้ง่ายขึ้น</small></div>
           </div>
+          <div class="overview-metrics"><div><span>กินแล้ว</span><strong>{{ totals.calories.toLocaleString() }}</strong></div><div><span>เป้าหมาย</span><strong>{{ adjustedCalories.toLocaleString() }}</strong></div><div><span>กิจกรรม</span><strong>+{{ activityCalories.toLocaleString() }}</strong></div></div>
         </div>
 
-        <div class="mt-7 flex items-center justify-between"><h2 class="text-lg font-bold">อาหารวันนี้</h2><div class="flex gap-3"><button type="button" class="text-sm font-semibold text-amber-700" @click="goTo('menus')">เมนูอาหาร</button><button type="button" class="text-sm font-semibold text-teal-700" @click="openFoodForm">+ เพิ่มอาหาร</button></div></div>
-        <div v-if="todayFoods.length === 0" class="empty-state mt-3"><span class="empty-icon">◌</span><p class="font-semibold">เริ่มบันทึกมื้อแรกกันเลย</p><p class="text-sm text-slate-500">เพิ่มอาหารหรือสแกนฉลากเพื่อดูภาพรวมวันนี้</p></div>
-        <div v-else class="mt-3 space-y-2">
-          <article v-for="food in todayFoods" :key="food.id" class="flex items-center gap-3 rounded-2xl bg-white p-4 shadow-sm">
-            <div class="min-w-0 flex-1"><p class="truncate font-semibold">{{ food.name }}</p><p class="text-sm text-slate-500">{{ mealLabels[food.meal] }} · P {{ food.protein }}g · C {{ food.carbs }}g · F {{ food.fat }}g</p></div>
-            <div class="shrink-0 text-right"><p class="font-bold">{{ food.calories }} kcal</p><div class="mt-1 flex justify-end gap-3"><button type="button" class="text-xs font-medium text-amber-700" @click="saveFoodAsPreset(food)">เก็บเมนู</button><button type="button" class="text-xs font-medium text-teal-700" @click="editFood(food)">แก้ไข</button><button type="button" class="text-xs font-medium text-red-600" @click="removeFood(food.id)">ลบ</button></div></div>
-          </article>
+        <div class="action-grid"><button type="button" class="action-tile action-food" @click="openFoodForm"><span class="action-symbol">＋</span><strong>เพิ่มอาหาร</strong><small>พิมพ์หรือเลือกเมนู</small></button><button type="button" class="action-tile action-scan" @click="openScanner"><span class="action-symbol">▣</span><strong>สแกนฉลาก</strong><small>ถ่ายรูปแล้วอ่านทันที</small></button></div>
+
+        <div class="section-heading"><div><p class="page-kicker">บันทึกประจำวัน</p><h2>อาหารแต่ละมื้อ</h2></div><button type="button" @click="goTo('history')">ดูประวัติ →</button></div>
+        <div class="meal-list">
+          <section v-for="meal in diaryMeals" :key="meal.key" class="meal-card">
+            <div class="meal-card-head"><span class="meal-symbol">{{ meal.icon }}</span><div class="meal-title"><h3>{{ meal.label }}</h3><small>{{ foodsForMeal(meal.key).length ? `${foodsForMeal(meal.key).length} รายการ` : meal.hint }}</small></div><strong>{{ caloriesForMeal(meal.key).toLocaleString() }} <small>kcal</small></strong></div>
+            <div v-if="foodsForMeal(meal.key).length" class="meal-items"><div v-for="food in foodsForMeal(meal.key)" :key="food.id" class="meal-item"><div><strong>{{ food.name }}</strong><small>P {{ food.protein }} · C {{ food.carbs }} · F {{ food.fat }} g</small></div><div class="meal-item-actions"><span>{{ food.calories }} kcal</span><button type="button" :aria-label="`แก้ไข ${food.name}`" @click="editFood(food)">แก้ไข</button></div></div></div>
+            <button v-if="meal.key !== 'snack'" type="button" class="meal-add" @click="openFoodForMeal(meal.key)">＋ เพิ่ม{{ meal.label }}</button>
+          </section>
         </div>
 
-        <div class="mt-7 flex items-center justify-between"><h2 class="text-lg font-bold">กิจกรรมวันนี้</h2><button type="button" class="text-sm font-semibold text-teal-700" @click="goTo('activity')">+ เพิ่ม / ดูทั้งหมด</button></div>
-        <p v-if="todayActivities.length === 0" class="mt-3 rounded-2xl bg-white p-4 text-center text-slate-500">ยังไม่มีกิจกรรมวันนี้</p>
-        <div v-else class="mt-3 space-y-2">
-          <article v-for="activity in todayActivities" :key="activity.id" class="flex items-center gap-3 rounded-2xl bg-white p-4 shadow-sm">
-            <div class="min-w-0 flex-1"><p class="truncate font-semibold">{{ activity.name }}</p><p class="text-sm text-teal-700">เพิ่มงบวันนี้ +{{ activity.calories }} kcal</p></div>
-            <div class="flex shrink-0 gap-3"><button type="button" class="text-sm font-medium text-teal-700" @click="editActivity(activity)">แก้ไข</button><button type="button" class="text-sm font-medium text-red-600" @click="removeActivity(activity.id)">ลบ</button></div>
-          </article>
-        </div>
+        <div class="section-heading"><div><p class="page-kicker">สารอาหาร</p><h2>สมดุลวันนี้</h2></div><button type="button" @click="goTo('stats')">ดูสถิติ →</button></div>
+        <div class="macro-list"><div v-for="macro in macroCards" :key="macro.key" class="macro-row"><div class="macro-row-top"><span>{{ macro.label }}</span><strong>{{ totals[macro.key] }} <small>/ {{ targets[macro.key] }} g</small></strong></div><div class="macro-track" role="progressbar" :aria-label="macro.label" :aria-valuenow="totals[macro.key]" :aria-valuemax="targets[macro.key] || 1"><span :class="macro.barClass" :style="{ width: `${percent(totals[macro.key], targets[macro.key])}%` }" /></div></div></div>
+
+        <button type="button" class="activity-shortcut" @click="goTo('activity')"><span class="activity-symbol">↗</span><span><strong>กิจกรรมวันนี้</strong><small>{{ todayActivities.length ? `${todayActivities.length} รายการ · เผาผลาญ ${activityCalories} kcal` : 'เพิ่มกิจกรรมเพื่อปรับเป้าพลังงาน' }}</small></span><span>→</span></button>
       </section>
 
       <section v-else-if="tab === 'add'" class="px-5">
-        <div class="flex items-center gap-3"><button type="button" class="touch-button text-2xl" aria-label="กลับหน้าวันนี้" @click="resetFoodForm(); goTo('today')">‹</button><h1 class="text-2xl font-bold">{{ editingFoodId ? 'แก้ไขอาหาร' : 'เพิ่มอาหาร' }}</h1></div>
-        <p class="mt-2 text-slate-600">พิมพ์รายละเอียดอาหารให้ AI ประเมิน แล้วตรวจแก้ตัวเลขก่อนบันทึก</p>
-        <button v-if="!editingFoodId" type="button" class="scan-invite" @click="openScanner"><span class="scan-invite-icon">▣</span><span><strong>มีฉลากอาหาร?</strong><small>ถ่ายรูปเพื่อเติมข้อมูลโภชนาการ</small></span><span>→</span></button>
-        <form class="mt-6 space-y-4" @submit.prevent="saveFood">
-          <div v-if="!editingFoodId" class="rounded-2xl bg-white p-4 shadow-sm"><div class="flex items-center justify-between gap-3"><div><p class="font-semibold">เมนูของฉัน</p><p class="text-sm text-slate-500">เลือกอาหารที่กินบ่อยเพื่อเติมข้อมูลทันที</p></div><button type="button" class="shrink-0 text-sm font-semibold text-amber-700" @click="goTo('menus')">จัดการเมนู</button></div><p v-if="foodPresets.length === 0" class="mt-3 text-sm text-slate-500">ยังไม่มีเมนูที่บันทึกไว้</p><div v-else class="mt-3 flex gap-2 overflow-x-auto pb-1"><button v-for="preset in foodPresets" :key="preset.id" type="button" class="shrink-0 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-left text-sm text-teal-950" @click="applyFoodPreset(preset)"><span class="block max-w-36 truncate font-semibold">{{ preset.name }}</span><span class="block text-xs text-teal-700">{{ preset.calories }} kcal · P {{ preset.protein }}g</span></button></div></div>
-          <label class="block"><span class="mb-1 block text-sm font-medium text-slate-700">รายละเอียดอาหาร</span><input v-model="form.name" :disabled="isEstimating" maxlength="500" placeholder="เช่น กะเพราไก่ไข่ดาว 1 จาน" class="w-full rounded-2xl border-0 bg-white px-4 py-4 shadow-sm outline-teal-600 disabled:opacity-60"></label>
-          <button v-if="!editingFoodId" type="button" :disabled="isEstimating || !isOnline" class="w-full rounded-2xl border border-teal-200 bg-teal-50 py-3 font-semibold text-teal-800 disabled:opacity-50" @click="estimateFood">{{ !isOnline ? 'ออฟไลน์ — AI ใช้งานไม่ได้' : isEstimating ? 'AI กำลังประเมิน…' : messageKind === 'error' && message ? '✦ ลองประเมินด้วย AI อีกครั้ง' : '✦ ประเมินด้วย AI' }}</button>
-          <div class="grid grid-cols-2 gap-3"><label class="block"><span class="mb-1 block text-sm text-slate-600">วันที่</span><input v-model="form.date" type="date" class="w-full rounded-xl bg-white px-3 py-3 shadow-sm outline-teal-600"></label><label class="block"><span class="mb-1 block text-sm text-slate-600">มื้ออาหาร <small class="font-normal text-teal-700">เลือกตามเวลาแล้ว</small></span><select v-model="form.meal" class="w-full rounded-xl bg-white px-3 py-3 shadow-sm outline-teal-600"><option value="breakfast">อาหารเช้า</option><option value="lunch">อาหารกลางวัน</option><option value="dinner">อาหารเย็น (17–18 น.)</option><option value="supper">อาหารค่ำ (19 น. เป็นต้นไป)</option></select></label></div>
-          <div class="grid grid-cols-2 gap-3"><label v-for="item in targetFields" :key="item.key" class="block"><span class="mb-1 block text-sm text-slate-600">{{ item.label }} ({{ item.unit }})</span><input v-model="form[item.key]" type="number" min="0" step="0.1" inputmode="decimal" class="w-full rounded-xl bg-white px-3 py-3 shadow-sm outline-teal-600"></label></div>
-          <label v-if="!editingFoodId" class="flex cursor-pointer items-center gap-3 rounded-2xl border border-teal-100 bg-teal-50 p-4"><input v-model="saveAsPreset" type="checkbox" class="h-5 w-5 accent-teal-700"><span><span class="block font-semibold text-teal-950">บันทึกเป็นเมนูของฉัน</span><span class="block text-sm text-teal-800">ใช้ชื่อและสารอาหารชุดนี้ซ้ำได้ในครั้งถัดไป</span></span></label>
-          <p v-if="message" class="text-sm" :class="messageClass" role="status" aria-live="polite">{{ message }}</p>
-          <div class="flex gap-3"><button v-if="editingFoodId" type="button" class="flex-1 rounded-2xl border border-slate-200 bg-white py-4 font-semibold" @click="resetFoodForm(); goTo('today')">ยกเลิก</button><button :disabled="isEstimating" class="flex-1 rounded-2xl bg-teal-700 py-4 font-semibold text-white disabled:opacity-60">{{ editingFoodId ? 'บันทึกการแก้ไข' : 'บันทึกอาหาร' }}</button></div>
+        <div class="page-heading"><div><p class="page-kicker">บันทึกอาหาร</p><h1>{{ editingFoodId ? 'แก้ไขรายการ' : 'เพิ่มมื้อใหม่' }}</h1></div><button type="button" class="close-page" aria-label="กลับหน้าวันนี้" @click="resetFoodForm(); goTo('today')">×</button></div>
+        <p class="page-intro">{{ editingFoodId ? 'แก้ไขข้อมูลแล้วบันทึกอีกครั้ง' : 'เลือกวิธีที่สะดวก แล้วตรวจข้อมูลก่อนบันทึก' }}</p>
+        <div v-if="!editingFoodId" class="entry-methods"><button type="button" class="entry-method is-selected" @click="focusFoodInput"><span>✦</span><strong>พิมพ์ / AI</strong></button><button type="button" class="entry-method" @click="openScanner"><span>▣</span><strong>สแกนฉลาก</strong></button><button type="button" class="entry-method" @click="goTo('menus')"><span>▤</span><strong>เมนูเดิม</strong></button></div>
+        <form class="entry-form" @submit.prevent="saveFood">
+          <div class="form-panel"><div class="form-step"><span>01</span><div><h2>อาหารที่กิน</h2><p>ระบุชื่อและเลือกมื้อ</p></div></div>
+            <label class="field-label"><span>ชื่ออาหาร</span><input ref="foodNameInput" v-model="form.name" :disabled="isEstimating" maxlength="500" placeholder="เช่น กะเพราไก่ไข่ดาว 1 จาน"></label>
+            <button v-if="!editingFoodId" type="button" :disabled="isEstimating || !isOnline || !form.name.trim()" class="estimate-button" @click="estimateFood">{{ !isOnline ? 'ต้องเชื่อมต่ออินเทอร์เน็ต' : isEstimating ? 'กำลังประเมิน…' : '✦ ให้ AI ประเมินสารอาหาร' }}</button>
+            <div class="field-grid"><label class="field-label"><span>วันที่</span><input v-model="form.date" type="date"></label><label class="field-label"><span>มื้ออาหาร</span><select v-model="form.meal"><option value="breakfast">มื้อเช้า</option><option value="lunch">มื้อกลางวัน</option><option value="dinner">มื้อเย็น</option><option value="supper">มื้อค่ำ</option></select></label></div>
+          </div>
+          <div class="form-panel"><div class="form-step"><span>02</span><div><h2>ข้อมูลโภชนาการ</h2><p>ตรวจตัวเลขต่อหนึ่งมื้อที่กินจริง</p></div></div><div class="nutrition-fields"><label v-for="item in targetFields" :key="item.key" class="field-label"><span>{{ item.label }}</span><div class="input-unit"><input v-model="form[item.key]" type="number" min="0" step="0.1" inputmode="decimal" placeholder="0"><small>{{ item.unit }}</small></div></label></div></div>
+          <label v-if="!editingFoodId" class="preset-toggle"><input v-model="saveAsPreset" type="checkbox"><span><strong>เก็บเป็นเมนูของฉัน</strong><small>เลือกใช้ซ้ำได้ในครั้งต่อไป</small></span></label>
+          <p v-if="message" class="form-message" :class="messageClass" role="status" aria-live="polite">{{ message }}</p>
+          <div class="form-actions"><button v-if="editingFoodId" type="button" class="secondary-action" @click="resetFoodForm(); goTo('today')">ยกเลิก</button><button :disabled="isEstimating" class="primary-action">{{ editingFoodId ? 'บันทึกการแก้ไข' : 'บันทึกอาหาร' }} →</button></div>
         </form>
       </section>
 
@@ -591,9 +596,11 @@ onBeforeUnmount(() => {
       </section>
 
       <section v-else-if="tab === 'history'" class="px-5">
-        <h1 class="text-2xl font-bold">ประวัติอาหาร</h1><p class="mt-2 text-slate-600">รายการที่บันทึกไว้ย้อนหลัง</p>
-        <p v-if="historyDays.length === 0" class="mt-6 rounded-2xl bg-white p-5 text-center text-slate-500">ยังไม่มีประวัติอาหาร</p>
-        <div v-else class="mt-6 space-y-6"><section v-for="day in historyDays" :key="day"><div class="mb-2 flex items-center justify-between"><h2 class="font-bold">{{ formatHistoryDate(day) }}</h2><p class="text-sm text-slate-500">{{ dailyCalories(day) }} kcal</p></div><div class="space-y-2"><article v-for="food in foods.filter((item) => item.date === day)" :key="food.id" class="flex items-center gap-3 rounded-2xl bg-white p-4 shadow-sm"><div class="min-w-0 flex-1"><p class="truncate font-semibold">{{ food.name }}</p><p class="text-sm text-slate-500">P {{ food.protein }}g · C {{ food.carbs }}g · F {{ food.fat }}g</p></div><div class="shrink-0 text-right"><p class="font-bold">{{ food.calories }} kcal</p><div class="mt-1 flex gap-3"><button type="button" class="text-xs font-medium text-amber-700" @click="saveFoodAsPreset(food)">เก็บเมนู</button><button type="button" class="text-xs font-medium text-teal-700" @click="editFood(food)">แก้ไข</button><button type="button" class="text-xs font-medium text-red-600" @click="removeFood(food.id)">ลบ</button></div></div></article></div></section></div>
+        <div class="page-heading"><div><p class="page-kicker">บันทึกย้อนหลัง</p><h1>ประวัติอาหาร</h1></div><span class="count-pill">{{ foods.length }} รายการ</span></div>
+        <div class="history-filter"><label for="history-date">เลือกวันที่</label><input id="history-date" v-model="historyFilter" type="date"><button v-if="historyFilter" type="button" @click="historyFilter = ''">ดูทั้งหมด</button></div>
+        <div v-if="historyDays.length === 0" class="empty-state mt-5"><span class="empty-icon">◌</span><p class="font-semibold">ยังไม่มีประวัติอาหาร</p><button type="button" class="text-teal-700" @click="openFoodForm">เพิ่มอาหารมื้อแรก →</button></div>
+        <p v-else-if="visibleHistoryDays.length === 0" class="empty-state mt-5">ไม่มีรายการในวันที่เลือก</p>
+        <div v-else class="history-days"><section v-for="day in visibleHistoryDays" :key="day" class="history-day"><div class="history-day-head"><div><h2>{{ formatHistoryDate(day) }}</h2><small>{{ foods.filter((item) => item.date === day).length }} รายการ</small></div><strong>{{ dailyCalories(day).toLocaleString() }} <small>kcal</small></strong></div><article v-for="food in foods.filter((item) => item.date === day)" :key="food.id" class="history-item"><div><span class="history-meal">{{ mealLabels[food.meal] }}</span><h3>{{ food.name }}</h3><small>P {{ food.protein }} · C {{ food.carbs }} · F {{ food.fat }} g</small></div><div><strong>{{ food.calories }} kcal</strong><button type="button" @click="editFood(food)">แก้ไข</button></div></article></section></div>
       </section>
 
       <section v-else-if="tab === 'stats'" class="px-5">
@@ -652,7 +659,7 @@ onBeforeUnmount(() => {
       </section>
 
       <section v-else-if="tab === 'activity'" class="px-5">
-        <div class="flex items-center gap-3"><button type="button" class="touch-button text-2xl" aria-label="กลับหน้าวันนี้" @click="resetActivityForm(); goTo('today')">‹</button><h1 class="text-2xl font-bold">กิจกรรม</h1></div>
+        <div class="flex items-center gap-3"><button type="button" class="touch-button text-2xl" aria-label="กลับหน้าสุขภาพ" @click="resetActivityForm(); goTo('health')">‹</button><h1 class="text-2xl font-bold">กิจกรรม</h1></div>
         <p class="mt-2 text-slate-600">แคลอรีกิจกรรมจะเพิ่มเป้าพลังงานของวันที่เลือก</p>
         <form class="mt-6 space-y-4" @submit.prevent="saveActivity">
           <label class="block"><span class="mb-1 block text-sm font-medium text-slate-700">วันที่</span><input v-model="activityForm.date" type="date" class="w-full rounded-2xl bg-white px-4 py-4 shadow-sm outline-teal-600"></label>
@@ -664,6 +671,16 @@ onBeforeUnmount(() => {
         <h2 class="mt-8 text-lg font-bold">กิจกรรมทั้งหมด</h2>
         <p v-if="sortedActivities.length === 0" class="mt-3 rounded-2xl bg-white p-4 text-center text-slate-500">ยังไม่มีกิจกรรมที่บันทึกไว้</p>
         <div v-else class="mt-3 space-y-2"><article v-for="activity in sortedActivities" :key="activity.id" class="flex items-center gap-3 rounded-2xl bg-white p-4 shadow-sm"><div class="min-w-0 flex-1"><p class="truncate font-semibold">{{ activity.name }}</p><p class="text-sm text-slate-500">{{ formatHistoryDate(activity.date) }} · {{ activity.calories }} kcal</p></div><div class="flex shrink-0 gap-3"><button type="button" class="text-sm font-medium text-teal-700" @click="editActivity(activity)">แก้ไข</button><button type="button" class="text-sm font-medium text-red-600" @click="removeActivity(activity.id)">ลบ</button></div></article></div>
+      </section>
+
+      <section v-else-if="tab === 'health'" class="px-5 health-page">
+        <div class="page-heading"><div><p class="page-kicker">บันทึกเพิ่มเติม</p><h1>สุขภาพของฉัน</h1></div></div>
+        <p class="page-intro">ดูความเปลี่ยนแปลงของร่างกายและกิจกรรมในที่เดียว</p>
+        <div class="health-hero"><div><span>น้ำหนักล่าสุด</span><strong>{{ latestBodyValue('weight') ?? '—' }} <small>kg</small></strong><small>ติดตามต่อเนื่องเพื่อเห็นแนวโน้ม</small></div><span class="health-hero-icon">◉</span></div>
+        <div class="health-grid"><button type="button" @click="goTo('body')"><span class="health-tile-icon">◉</span><strong>สัดส่วนร่างกาย</strong><small>น้ำหนัก · ไขมัน · กล้ามเนื้อ</small><span class="health-tile-link">ดูและบันทึก →</span></button><button type="button" @click="goTo('activity')"><span class="health-tile-icon">↗</span><strong>กิจกรรม</strong><small>วันนี้เผาผลาญ {{ activityCalories }} kcal</small><span class="health-tile-link">ดูและบันทึก →</span></button></div>
+        <div class="section-heading"><div><p class="page-kicker">ทางลัด</p><h2>จัดการข้อมูล</h2></div></div>
+        <button type="button" class="health-link" @click="goTo('menus')"><span>▤</span><strong>เมนูอาหารของฉัน</strong><span>→</span></button>
+        <button type="button" class="health-link" @click="goTo('settings')"><span>⚙</span><strong>เป้าหมายและตั้งค่า</strong><span>→</span></button>
       </section>
 
       <section v-else class="px-5">
@@ -682,12 +699,11 @@ onBeforeUnmount(() => {
       </section>
 
       <nav class="safe-nav app-nav fixed bottom-0 left-1/2 z-20 flex w-full max-w-lg -translate-x-1/2 justify-around bg-white/95 px-2 pt-2 backdrop-blur" aria-label="เมนูหลัก">
-        <button type="button" class="nav-button" :class="tab === 'today' ? 'text-teal-700' : 'text-slate-500'" :aria-current="tab === 'today' ? 'page' : undefined" @click="goTo('today')">⌂<span>วันนี้</span></button>
-        <button type="button" class="nav-button" :class="tab === 'history' ? 'text-teal-700' : 'text-slate-500'" :aria-current="tab === 'history' ? 'page' : undefined" @click="goTo('history')">◷<span>ประวัติ</span></button>
-        <button type="button" class="nav-add -mt-7 grid h-14 w-14 place-items-center rounded-full bg-teal-700 text-3xl text-white shadow-lg" aria-label="เพิ่มอาหาร" @click="openFoodForm">+</button>
-        <button type="button" class="nav-button" :class="tab === 'stats' ? 'text-teal-700' : 'text-slate-500'" :aria-current="tab === 'stats' ? 'page' : undefined" @click="goTo('stats')">▥<span>สถิติ</span></button>
-        <button type="button" class="nav-button" :class="tab === 'body' ? 'text-teal-700' : 'text-slate-500'" :aria-current="tab === 'body' ? 'page' : undefined" @click="goTo('body')">♙<span>ร่างกาย</span></button>
-        <button type="button" class="nav-button" :class="tab === 'settings' ? 'text-teal-700' : 'text-slate-500'" :aria-current="tab === 'settings' ? 'page' : undefined" @click="goTo('settings')">⚙<span>ตั้งค่า</span></button>
+        <button type="button" class="nav-button" :class="tab === 'today' ? 'is-active' : ''" :aria-current="tab === 'today' ? 'page' : undefined" @click="goTo('today')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg><span>วันนี้</span></button>
+        <button type="button" class="nav-button" :class="tab === 'history' ? 'is-active' : ''" :aria-current="tab === 'history' ? 'page' : undefined" @click="goTo('history')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M7 2v4M17 2v4M3 9h18M8 14h3M8 17h6"/></svg><span>ประวัติ</span></button>
+        <button type="button" class="nav-add" :class="['add', 'scan', 'menus'].includes(tab) ? 'is-active' : ''" aria-label="เพิ่มอาหาร" @click="openFoodForm"><span>＋</span><small>เพิ่ม</small></button>
+        <button type="button" class="nav-button" :class="tab === 'stats' ? 'is-active' : ''" :aria-current="tab === 'stats' ? 'page' : undefined" @click="goTo('stats')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10h4v10M10 20V4h4v16M16 20v-7h4v7M2 20h20"/></svg><span>สถิติ</span></button>
+        <button type="button" class="nav-button" :class="['health', 'body', 'activity', 'settings'].includes(tab) ? 'is-active' : ''" :aria-current="tab === 'health' ? 'page' : undefined" @click="goTo('health')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 9c0 5-8 11-8 11S4 14 4 9a4.5 4.5 0 0 1 8-2.8A4.5 4.5 0 0 1 20 9Z"/><path d="M7 11h3l1.3-2.5L13 14l1.2-3H17"/></svg><span>สุขภาพ</span></button>
       </nav>
     </template>
   </main>
